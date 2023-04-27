@@ -27,7 +27,7 @@ class Section:
 # Blender classes:        
 class GROWTREE_PG_tree_parameters(bpy.types.PropertyGroup):
     seed: bpy.props.IntProperty(name="Seed", default=0)
-    iterations: bpy.props.IntProperty(name="Iterations", default=50, min=0, max=256)
+    iterations: bpy.props.IntProperty(name="Iterations", default=20, min=0, max=256)
     split_chance: bpy.props.FloatProperty(name="Split Chance", default=0.05, min=0, max=1)
     split_angle: bpy.props.FloatProperty(name="Split Angle", default=45, min=0, max=90)
     light_source: bpy.props.FloatVectorProperty(name="Light Source", default=(0, 0, 1000))
@@ -42,7 +42,9 @@ class GROWTREE_OT_create_tree(bpy.types.Operator):
     tree_parameters: bpy.props.PointerProperty(type=GROWTREE_PG_tree_parameters)
 
     def execute(self, context):
-        mesh = self.create_tree_mesh()
+        tree_parameters = context.scene.tree_parameters
+        
+        mesh = self.create_tree_mesh(tree_parameters)
         obj_name = "Created Tree"
         
         if obj_name in bpy.data.objects:
@@ -53,9 +55,8 @@ class GROWTREE_OT_create_tree(bpy.types.Operator):
 
         return {'FINISHED'}
 
+    def create_tree_mesh(self, tree_parameters):
 
-    def create_tree_mesh(self):
-        
         def get_random_value(seed):
             random.seed(seed)
             return random.random()
@@ -81,8 +82,20 @@ class GROWTREE_OT_create_tree(bpy.types.Operator):
                     section.open_end = False
 
                     direction = get_direction(section.points[-2], section.points[-1])
+                    
+                    # The split direction is with a given angle against the product of the 
+                    # original direction with a random one.
                     split_direction = direction.copy()
-                    split_direction.rotate(Quaternion(direction.cross(Vector((0, 0, 1))), math.radians(split_angle)))
+                    random_direction = Vector((random.uniform(-1, 1), random.uniform(-1, 1), random.uniform(-1, 1))).normalized()
+                    light_direction = Vector((tree_parameters.light_source[0], tree_parameters.light_source[1], tree_parameters.light_source[2])).normalized()
+                    
+                    # Combining the random direction with the light direction.
+                    random_direction = (random_direction * (1 - tree_parameters.light_searching) + light_direction * tree_parameters.light_searching).normalized()
+                    
+                    #split_direction.rotate(Quaternion(direction.cross(Vector((0, 0, 1))), math.radians(split_angle)))
+                    split_direction.rotate(Quaternion(direction.cross(random_direction).normalized(), math.radians(split_angle)))
+                    #split_direction.rotate(Quaternion(direction), math.radians(random.uniform(0, 360))))
+                    #split_direction.rotate(Quaternion(direction), math.radians(70)))
 
                     new_section1 = Section(points=section.points[-1:], open_end=True)
                     new_section2 = Section(points=section.points[-1:], open_end=True)
@@ -102,9 +115,9 @@ class GROWTREE_OT_create_tree(bpy.types.Operator):
         
         print(self.tree_parameters)
 
-        for _ in range(self.tree_parameters.iterations):
+        for _ in range(tree_parameters.iterations):
             grow_step(sections)
-            new_sections = check_splits(sections, self.tree_parameters.split_chance, self.tree_parameters.split_angle)
+            new_sections = check_splits(sections, tree_parameters.split_chance, tree_parameters.split_angle)
             sections.extend(new_sections)
 
         for section in sections:
@@ -127,10 +140,12 @@ class GROWTREE_PT_create_tree_panel(bpy.types.Panel):
 
     def draw(self, context):
         layout = self.layout
-        op = layout.operator(GROWTREE_OT_create_tree.bl_idname)
-        
+        tree_parameters = context.scene.tree_parameters
+
         for prop_name in GROWTREE_PG_tree_parameters.__annotations__.keys():
-            layout.prop(op.tree_parameters, prop_name)
+            layout.prop(tree_parameters, prop_name)
+
+        layout.operator(GROWTREE_OT_create_tree.bl_idname)
 
 def menu_func(self, context):
     self.layout.operator(GROWTREE_OT_create_tree.bl_idname)
@@ -140,12 +155,14 @@ def register():
     bpy.utils.register_class(GROWTREE_PG_tree_parameters)
     bpy.utils.register_class(GROWTREE_OT_create_tree)
     bpy.utils.register_class(GROWTREE_PT_create_tree_panel)
+    bpy.types.Scene.tree_parameters = bpy.props.PointerProperty(type=GROWTREE_PG_tree_parameters)
     bpy.types.VIEW3D_MT_mesh_add.append(menu_func)
 
 def unregister():
     bpy.utils.unregister_class(GROWTREE_PG_tree_parameters)
     bpy.utils.unregister_class(GROWTREE_OT_create_tree)
     bpy.utils.unregister_class(GROWTREE_PT_create_tree_panel)
+    del bpy.types.Scene.tree_parameters
     bpy.types.VIEW3D_MT_mesh_add.remove(menu_func)
 
 if __name__ == "__main__":
