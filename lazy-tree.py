@@ -43,7 +43,7 @@ class GROWTREE_PG_tree_parameters(bpy.types.PropertyGroup):
     light_source: bpy.props.FloatVectorProperty(name="Light Source", default=(0, 0, 1000), update=update_tree)
     light_searching_top: bpy.props.FloatProperty(name="Light Searching Top", default=0.5, min=0, max=2, update=update_tree)
     light_searching_bottom: bpy.props.FloatProperty(name="Light Searching Bottom", default=0.5, min=0, max=2, update=update_tree)
-    light_searching_edges: bpy.props.FloatProperty(name="Light Searching Fringes", default=0.5, min=0, max=5, update=update_tree)
+    light_searching_edges: bpy.props.FloatProperty(name="Light Searching Fringes", default=3, min=0, max=10, update=update_tree)
     ground_avoiding: bpy.props.FloatProperty(name="Ground Avoiding", default=0.5, min=0, max=3, update=update_tree)
     trunk_gravity: bpy.props.FloatProperty(name="Trunk Gravity", default=0.5, min=0, max=10, update=update_tree)
     split_ratio_bottom: bpy.props.FloatProperty(name="Branch Split Ratio Bottom", default=0.4, min=0, max=0.5, update=update_tree)
@@ -99,13 +99,30 @@ class GROWTREE_OT_create_tree(bpy.types.Operator):
             random.seed(seed)
             return random.random()
         
-        def get_direction(previous_point1, previous_point2):
-            direction = (previous_point1 - previous_point2).normalized()
+        def get_light_weight(section_weight, iteration_number, tree_parameters):
+             # Light Searching parameter
+            progress = iteration_number / tree_parameters.iterations
+            root_weight = tree_parameters.tree_weight_factor * tree_parameters.iterations
+            thickness = math.sqrt(1 - section_weight / root_weight)
+            light_searching = \
+                tree_parameters.light_searching_bottom * (1 - progress) + \
+                tree_parameters.light_searching_top * progress + \
+                tree_parameters.light_searching_edges * (max(0, thickness-0.97) * 5)
+            return light_searching
+        
+        def get_growth_direction(previous_point1, previous_point2, section_weight, iteration_number, tree_parameters):
+            direction = (previous_point2 - previous_point1).normalized()
             random_direction = Vector((random.uniform(-1, 1), random.uniform(-1, 1), random.uniform(-1, 1))).normalized()
-            final_direction = -(direction + random_direction * 0.05).normalized()
+            light_direction = Vector((\
+                tree_parameters.light_source[0], \
+                tree_parameters.light_source[1], \
+                tree_parameters.light_source[2])).normalized()
+
+            final_direction = (direction + random_direction * 0.05 +\
+                 light_direction * get_light_weight(section_weight, iteration_number, tree_parameters)* 0.01).normalized()
             return final_direction
 
-        def grow_step(sections, tree_parameters):
+        def grow_step(sections, tree_parameters, iteration_number):
             for section in sections:
                 if section.open_end:
                     
@@ -117,7 +134,13 @@ class GROWTREE_OT_create_tree(bpy.types.Operator):
                     section.length = section.length + 1
                     last_point = section.points[-1]
                     quasi_last_point = section.points[-2]
-                    new_point = last_point + get_direction(quasi_last_point, last_point) * tree_parameters.segment_length
+                    new_point = last_point + get_growth_direction(\
+                        quasi_last_point, \
+                        last_point, \
+                        section.weight, \
+                        iteration_number, \
+                        tree_parameters) *\
+                        tree_parameters.segment_length
                     section.points.append(new_point)
 
         def check_splits(sections, tree_parameters, iteration_number):
@@ -142,7 +165,12 @@ class GROWTREE_OT_create_tree(bpy.types.Operator):
 
                     # Direction is provided by the last segment in the section. Sections start with
                     # two points so we can assume that there are at least 2 points here.
-                    initial_direction = get_direction(section.points[-2], section.points[-1])
+                    initial_direction = get_growth_direction(
+                        section.points[-2], 
+                        section.points[-1], 
+                        section.weight,
+                        iteration_number,
+                        tree_parameters)
 
                     # Calculating the weight of the two branches. The distribution goes from 0 to
                     # 0.5 (equal split). the new branch is always the smaller one.
@@ -202,10 +230,14 @@ class GROWTREE_OT_create_tree(bpy.types.Operator):
             
             # Light Searching parameter
             progress = iteration_number / tree_parameters.iterations
+            root_weight = tree_parameters.tree_weight_factor * tree_parameters.iterations
+            thickness = math.sqrt(1 - section.weight / root_weight)
             light_searching = \
                 tree_parameters.light_searching_bottom * (1 - progress) + \
                 tree_parameters.light_searching_top * progress + \
-                tree_parameters.light_searching_edges * (max(0, progress-0.8) * 5)
+                tree_parameters.light_searching_edges * (max(0, thickness-0.97) * 5)
+            print(f"progress value: = {thickness} ")
+
 
             # Adding the various effects and normalizing.
             direction = direction + \
@@ -337,7 +369,7 @@ class GROWTREE_OT_create_tree(bpy.types.Operator):
         sections = [root_section]
 
         for iteration_number in range(tree_parameters.iterations):
-            grow_step(sections, tree_parameters)
+            grow_step(sections, tree_parameters, iteration_number)
             new_sections = check_splits(sections, tree_parameters, iteration_number)
             sections.extend(new_sections)
 
