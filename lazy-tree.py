@@ -183,8 +183,9 @@ class GROWTREE_OT_create_tree(bpy.types.Operator):
             
             # Gravity depends on how much the branch weight is.
             root_weight = tree_parameters.tree_weight_factor * tree_parameters.iterations
-            gravity_vector = tree_parameters.trunk_gravity * \
-                Vector((0,0,-1)) * section.weight / root_weight
+            gravity_direction = Vector((0, 0, -1))
+            gravity_strength = tree_parameters.trunk_gravity * section.weight / root_weight
+            gravity_vector = gravity_strength * gravity_direction * Vector((direction.x, direction.y, 0)).length
             
             # Adding the various effects and normalizing.
             direction = direction + \
