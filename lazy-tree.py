@@ -20,10 +20,11 @@ import math
 from mathutils import Vector, Quaternion
 
 class Section:
-    def __init__(self, points, depth, open_end=True):
+    def __init__(self, points, depth, weight, open_end=True):
         self.points = points
         self.open_end = open_end
         self.depth = depth
+        self.weight = weight
         
 # Blender classes:        
 class GROWTREE_PG_tree_parameters(bpy.types.PropertyGroup):
@@ -34,6 +35,8 @@ class GROWTREE_PG_tree_parameters(bpy.types.PropertyGroup):
     light_source: bpy.props.FloatVectorProperty(name="Light Source", default=(0, 0, 1000))
     light_searching: bpy.props.FloatProperty(name="Light Searching", default=0.5, min=-1, max=2)
     trunk_gravity: bpy.props.FloatProperty(name="Trunk Gravity", default=0.5, min=-1, max=2)
+    split_ratio_bottom: bpy.props.FloatProperty(name="Branch Split Ratio Bottom", default=0.4, min=0.01, max=0.5)
+    split_ratio_top: bpy.props.FloatProperty(name="Branch Split Ratio Top", default=0.1, min=0.01, max=0.5)
 
 
 class GROWTREE_OT_create_tree(bpy.types.Operator):
@@ -76,14 +79,17 @@ class GROWTREE_OT_create_tree(bpy.types.Operator):
                     quasi_last_point = section.points[-2]
                     new_point = last_point + get_direction(quasi_last_point, last_point)
                     section.points.append(new_point)
-                    section.depth = section.depth
 
-        def check_splits(sections, split_chance, split_angle):
+        def check_splits(sections, tree_parameters, iteration_number):
             new_sections = []
             for section in sections:
-                if section.open_end and random.random() < split_chance:
+                if section.open_end and random.random() < tree_parameters.split_chance:
+
+                    # A split is happening: the current section is not open-ended anymore.
                     section.open_end = False
 
+                    # Direction is provided by the last segment in the section. Sections start with
+                    # two points so we can assume that there are at least 2 points here.
                     direction = get_direction(section.points[-2], section.points[-1])
                     
                     # The split direction is with a given angle against the product of the 
@@ -95,13 +101,27 @@ class GROWTREE_OT_create_tree(bpy.types.Operator):
                     # Combining the random direction with the light direction.
                     random_direction = (random_direction * (1 - tree_parameters.light_searching) + light_direction * tree_parameters.light_searching).normalized()
                     
-                    #split_direction.rotate(Quaternion(direction.cross(Vector((0, 0, 1))), math.radians(split_angle)))
-                    split_direction.rotate(Quaternion(direction.cross(random_direction).normalized(), math.radians(split_angle)))
-                    #split_direction.rotate(Quaternion(direction), math.radians(random.uniform(0, 360))))
-                    #split_direction.rotate(Quaternion(direction), math.radians(70)))
+                    # Rotating the split branch direction
+                    split_direction.rotate(Quaternion(direction.cross(random_direction).normalized(), math.radians(tree_parameters.split_angle)))
 
-                    new_section1 = Section(points=section.points[-1:], depth=section.depth + 1, open_end=True)
-                    new_section2 = Section(points=section.points[-1:], depth=section.depth + 1, open_end=True)
+                    # Calculating the weight of the two branches. The distribution goes from 0 to
+                    # 0.5 (equal split). the new branch is always the smaller one.
+                    progress = iteration_number / tree_parameters.iterations
+                    triangular_peak = \
+                        tree_parameters.split_ratio_bottom * (1 - progress) + \
+                        tree_parameters.split_ratio_top * progress
+                    split_ratio = random.triangular(0., 0.5, triangular_peak)
+
+                    new_section1 = Section( \
+                        points=section.points[-1:], \
+                        depth=section.depth + 1, \
+                        weight=section.weight * (1 - split_ratio), \
+                        open_end=True)
+                    new_section2 = Section( \
+                        points=section.points[-1:], \
+                        depth=section.depth + 1, \
+                        weight=section.weight * (split_ratio), \
+                        open_end=True)
 
                     new_section1.points.extend([new_section1.points[-1] + direction])
                     new_section2.points.extend([new_section2.points[-1] + split_direction])
@@ -113,12 +133,15 @@ class GROWTREE_OT_create_tree(bpy.types.Operator):
         mesh = bpy.data.meshes.new("Tree")
         bm = bmesh.new()
 
-        root_section = Section(points=[Vector((0, 0, 0)),Vector((0, 0, 0.1))], depth=1)
+        root_section = Section( \
+            points=[Vector((0, 0, 0)),Vector((0, 0, 0.1))], \
+            weight=tree_parameters.iterations, \
+            depth=1)
         sections = [root_section]
 
-        for _ in range(tree_parameters.iterations):
+        for iteration_number in range(tree_parameters.iterations):
             grow_step(sections)
-            new_sections = check_splits(sections, tree_parameters.split_chance, tree_parameters.split_angle)
+            new_sections = check_splits(sections, tree_parameters, iteration_number)
             sections.extend(new_sections)
 
         for section in sections:
