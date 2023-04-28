@@ -40,7 +40,7 @@ class GROWTREE_PG_tree_parameters(bpy.types.PropertyGroup):
     light_source: bpy.props.FloatVectorProperty(name="Light Source", default=(0, 0, 1000), update=update_tree)
     light_searching: bpy.props.FloatProperty(name="Light Searching", default=0.5, min=0, max=0.5, update=update_tree)
     ground_avoiding: bpy.props.FloatProperty(name="Ground Avoiding", default=0.5, min=0, max=3, update=update_tree)
-    trunk_gravity: bpy.props.FloatProperty(name="Trunk Gravity", default=0.5, min=-1, max=2, update=update_tree)
+    trunk_gravity: bpy.props.FloatProperty(name="Trunk Gravity", default=0.5, min=0, max=10, update=update_tree)
     split_ratio_bottom: bpy.props.FloatProperty(name="Branch Split Ratio Bottom", default=0.4, min=0, max=0.5, update=update_tree)
     split_ratio_top: bpy.props.FloatProperty(name="Branch Split Ratio Top", default=0.1, min=0, max=0.5, update=update_tree)
     split_ratio_random: bpy.props.FloatProperty(name="Branch Split Ratio Randomness", default=0.1, min=0, max=1, update=update_tree)
@@ -168,11 +168,15 @@ class GROWTREE_OT_create_tree(bpy.types.Operator):
             # Combining the random direction with the light direction
             light_direction = Vector((tree_parameters.light_source[0], tree_parameters.light_source[1], tree_parameters.light_source[2])).normalized()
             
-            # Gravity depends on how much the branch weight is
+            # Gravity depends on how much the branch weight is.
+            root_weight = tree_parameters.tree_weight_factor * tree_parameters.iterations
+            gravity_vector = tree_parameters.trunk_gravity * \
+                Vector((0,0,-1)) * section.weight / root_weight
             
             # Adding the various effects and normalizing.
             direction = direction + \
-                light_direction * tree_parameters.light_searching * 0.1
+                light_direction * tree_parameters.light_searching * 0.1 + \
+                gravity_vector
             direction = direction.normalized()
 
             # Avoiding ground means that all negative Z values of direction are mitigated.
