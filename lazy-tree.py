@@ -21,29 +21,30 @@ from mathutils import Vector, Quaternion
 
 
 class Section:
-    def __init__(self, points, depth, weight, open_end=True):
+    def __init__(self, points, depth, length, weight, open_end=True):
         self.points = points
         self.open_end = open_end
         self.depth = depth
+        self.length = length
         self.weight = weight
         
-            
-
-def update_tree():
+def update_tree(self, context):
     bpy.ops.growtree.create_tree()
 
 # Blender classes:        
 class GROWTREE_PG_tree_parameters(bpy.types.PropertyGroup):
     seed: bpy.props.IntProperty(name="Seed", default=0, update=update_tree)
     iterations: bpy.props.IntProperty(name="Iterations", default=20, min=0, max=256, update=update_tree)
-    split_chance: bpy.props.FloatProperty(name="Split Chance", default=0.05, min=0, max=1, update=update_tree)
+    split_chance: bpy.props.FloatProperty(name="Split Chance %", default=5, min=0, max=10, update=update_tree)
     split_angle: bpy.props.FloatProperty(name="Split Angle", default=45, min=0, max=90, update=update_tree)
     light_source: bpy.props.FloatVectorProperty(name="Light Source", default=(0, 0, 1000), update=update_tree)
-    light_searching: bpy.props.FloatProperty(name="Light Searching", default=0.5, min=-1, max=2, update=update_tree)
-    ground_avoiding: bpy.props.FloatProperty(name="Ground Avoiding", default=0.5, min=-1, max=2, update=update_tree)
+    light_searching: bpy.props.FloatProperty(name="Light Searching", default=0.5, min=0, max=0.5, update=update_tree)
+    ground_avoiding: bpy.props.FloatProperty(name="Ground Avoiding", default=0.5, min=0, max=3, update=update_tree)
     trunk_gravity: bpy.props.FloatProperty(name="Trunk Gravity", default=0.5, min=-1, max=2, update=update_tree)
-    split_ratio_bottom: bpy.props.FloatProperty(name="Branch Split Ratio Bottom", default=0.4, min=0.01, max=0.5, update=update_tree)
-    split_ratio_top: bpy.props.FloatProperty(name="Branch Split Ratio Top", default=0.1, min=0.01, max=0.5, update=update_tree)
+    split_ratio_bottom: bpy.props.FloatProperty(name="Branch Split Ratio Bottom", default=0.4, min=0, max=0.5, update=update_tree)
+    split_ratio_top: bpy.props.FloatProperty(name="Branch Split Ratio Top", default=0.1, min=0, max=0.5, update=update_tree)
+    split_ratio_random: bpy.props.FloatProperty(name="Branch Split Ratio Randomness", default=0.1, min=0, max=1, update=update_tree)
+    tree_weight_factor: bpy.props.FloatProperty(name="Tree Weight", default=10, min=1, max=50, update=update_tree)
 
 
 
@@ -60,7 +61,7 @@ class GROWTREE_OT_create_tree(bpy.types.Operator):
         # Before calculating a new tree, making sure that the amount of segments isn't 
         # likely to exceed a certain amount. let's say 10000.
         max_segments = 10000 
-        est_segments = pow(1 + tree_parameters.split_chance, tree_parameters.iterations)
+        est_segments = pow(1 + tree_parameters.split_chance * 0.01, tree_parameters.iterations)
         if  est_segments > max_segments:
             self.report({'WARNING'}, \
                 f"Estimated number of segments ({int(est_segments)}) exceeds the limit ({max_segments}). Aborting.")
@@ -92,9 +93,16 @@ class GROWTREE_OT_create_tree(bpy.types.Operator):
             final_direction = (direction + random_direction * 0.05).normalized()*-0.1
             return final_direction
 
-        def grow_step(sections):
+        def grow_step(sections, tree_parameters):
             for section in sections:
                 if section.open_end:
+                    
+                    # If the weight is below a certain value, stop growing
+                    if section.length > section.weight:
+                        section.open_end = False
+                        continue
+                    
+                    section.length = section.length + 1
                     last_point = section.points[-1]
                     quasi_last_point = section.points[-2]
                     new_point = last_point + get_direction(quasi_last_point, last_point)
@@ -103,7 +111,7 @@ class GROWTREE_OT_create_tree(bpy.types.Operator):
         def check_splits(sections, tree_parameters, iteration_number):
             new_sections = []
             for section in sections:
-                if section.open_end and random.random() < tree_parameters.split_chance:
+                if section.open_end and random.random() < tree_parameters.split_chance * 0.01:
 
                     # A split is happening: the current section is not open-ended anymore.
                     section.open_end = False
@@ -115,43 +123,44 @@ class GROWTREE_OT_create_tree(bpy.types.Operator):
                     # Calculating the weight of the two branches. The distribution goes from 0 to
                     # 0.5 (equal split). the new branch is always the smaller one.
                     progress = iteration_number / tree_parameters.iterations
-                    triangular_peak = \
+                    split_ratio = \
                         tree_parameters.split_ratio_bottom * (1 - progress) + \
                         tree_parameters.split_ratio_top * progress
-                    split_ratio = random.triangular(0., 0.5, triangular_peak)
-
+                    split_ratio = split_ratio * (1 - tree_parameters.split_ratio_random) + \
+                        random.uniform(0.,1.) * tree_parameters.split_ratio_random 
+                        
                     new_section1 = Section( \
                         points=section.points[-1:], \
                         depth=section.depth + 1, \
+                        length= 1, \
                         weight=section.weight * (1 - split_ratio), \
                         open_end=True)
                     new_section2 = Section( \
                         points=section.points[-1:], \
                         depth=section.depth + 1, \
+                        length= 1, \
                         weight=section.weight * (split_ratio), \
                         open_end=True)
 
-                    # Section A is the main section and tends to follow the previous branch. 
-                    # We then generate two random directions for the branches. how much that affects the 
-                    # final direction is based on the weight.
+                    # Rotating the branches along a random direction. The split is handled
+                    # through the split_ratio parameter before. 
                     direction1 = initial_direction.copy()
                     direction2 = initial_direction.copy()
-                    random_direction = get_random_direction(tree_parameters)
-                    #direction1 = direction1 * new_section1.weight
-                    #direction1 = (direction1 + random_direction * new_section2.weight).normalized()
+                    random_direction = uniform_random_direction()
                     angle1 = -tree_parameters.split_angle * split_ratio
                     angle2 = tree_parameters.split_angle * (1 - split_ratio)
                     direction1.rotate(Quaternion(direction1.cross(random_direction).normalized(), math.radians(angle1)))
                     direction2.rotate(Quaternion(direction2.cross(random_direction).normalized(), math.radians(angle2)))
 
-                    new_section1.points.extend([new_section1.points[-1] + direction1])
-                    new_section2.points.extend([new_section2.points[-1] + direction2])
+                    # Now calculating the effects on the new direction, then adding it to the new sections.
+                    new_section1.points.extend([new_section1.points[-1] + get_branches_direction(direction1, new_section1, tree_parameters)])
+                    new_section2.points.extend([new_section2.points[-1] + get_branches_direction(direction2, new_section2, tree_parameters)])
 
                     new_sections.extend([new_section1, new_section2])
 
             return new_sections
 
-        def get_random_direction(tree_parameters):
+        def get_branches_direction(direction, section, tree_parameters):
             
             # Random direction is calculated in theta-phi to get a more uniform distribution.
             random_direction = uniform_random_direction()
@@ -159,29 +168,25 @@ class GROWTREE_OT_create_tree(bpy.types.Operator):
             # Combining the random direction with the light direction
             light_direction = Vector((tree_parameters.light_source[0], tree_parameters.light_source[1], tree_parameters.light_source[2])).normalized()
             
+            # Gravity depends on how much the branch weight is
+            
             # Adding the various effects and normalizing.
-            random_direction = random_direction + \
-                light_direction * tree_parameters.light_searching
-            random_direction = random_direction.normalized()
+            direction = direction + \
+                light_direction * tree_parameters.light_searching * 0.1
+            direction = direction.normalized()
 
             # Avoiding ground means that all negative Z values of direction are mitigated.
-            random_direction.z = avoid_ground(random_direction.z, tree_parameters.ground_avoiding)
-            return random_direction.normalized()
+            direction.z = avoid_ground(direction.z, tree_parameters.ground_avoiding)
+            return direction.normalized()
             
-
         def avoid_ground(value, parameter):
+            # Cubic function that maps -1 to 0 and 1 to 1
+            def cubic_function(x):
+                return (x + 1) ** 3 / 8
 
-            # Quadratic logic. If parameter is < 1 the effect is mostly
-            # on the negative elements.
-            a = 1 - parameter
-            b = parameter * parameter
-
-            if value < 0:
-                return a * value + b * value * value
-            else:
-                return value + b * value * value
-
-
+            # Interpolate between the original value and the cubic function result based on the parameter
+            return value * (1 - parameter) + max(cubic_function(value),value) * parameter  
+        
         def uniform_random_direction():
             theta = random.uniform(0, 2 * math.pi)
             phi = random.uniform(0, math.pi)
@@ -198,12 +203,13 @@ class GROWTREE_OT_create_tree(bpy.types.Operator):
 
         root_section = Section( \
             points=[Vector((0, 0, 0)),Vector((0, 0, 0.1))], \
-            weight=tree_parameters.iterations, \
-            depth=1)
+            weight=tree_parameters.tree_weight_factor * tree_parameters.iterations, \
+            depth=1,\
+            length=1)
         sections = [root_section]
 
         for iteration_number in range(tree_parameters.iterations):
-            grow_step(sections)
+            grow_step(sections, tree_parameters)
             new_sections = check_splits(sections, tree_parameters, iteration_number)
             sections.extend(new_sections)
 
