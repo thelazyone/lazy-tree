@@ -45,7 +45,8 @@ class GROWTREE_PG_tree_parameters(bpy.types.PropertyGroup):
     split_ratio_top: bpy.props.FloatProperty(name="Branch Split Ratio Top", default=0.1, min=0, max=0.5, update=update_tree)
     split_ratio_random: bpy.props.FloatProperty(name="Branch Split Ratio Randomness", default=0.1, min=0, max=1, update=update_tree)
     tree_weight_factor: bpy.props.FloatProperty(name="Tree Weight", default=10, min=1, max=50, update=update_tree)
-
+    min_length_bottom: bpy.props.FloatProperty(name="Bottom Sections Lenght", default=10, min=1, max=100, update=update_tree)
+    min_length_top: bpy.props.FloatProperty(name="Top Sections Lenght", default=5, min=1, max=100, update=update_tree)
 
 
 class GROWTREE_OT_create_tree(bpy.types.Operator):
@@ -109,9 +110,21 @@ class GROWTREE_OT_create_tree(bpy.types.Operator):
                     section.points.append(new_point)
 
         def check_splits(sections, tree_parameters, iteration_number):
+            
+            # Progress indicates how far in the simulation we are. 
+            # Variable with "bottom" and "top" will be combined based on this.
+            progress = iteration_number / tree_parameters.iterations
+            min_length = tree_parameters.min_length_bottom * (1 - progress) + \
+                tree_parameters.min_length_top * progress
+                
             new_sections = []
             for section in sections:
-                if section.open_end and random.random() < tree_parameters.split_chance * 0.01:
+                
+                chance_factor = math.exp(section.length - min_length) - 1
+                if section.open_end and random.random() < tree_parameters.split_chance * 0.01 * chance_factor:
+                    
+                    if (section.length < min_length):
+                        continue
 
                     # A split is happening: the current section is not open-ended anymore.
                     section.open_end = False
