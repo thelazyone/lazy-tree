@@ -17,7 +17,7 @@ from bpy.props import IntProperty, FloatProperty, FloatVectorProperty
 # for split logic.
 import random
 import math
-from mathutils import Vector, Quaternion
+from mathutils import Vector, Quaternion, Matrix
 
 
 class Section:
@@ -36,6 +36,7 @@ def update_tree(self, context):
 class GROWTREE_PG_tree_parameters(bpy.types.PropertyGroup):
     seed: bpy.props.IntProperty(name="Seed", default=0, update=update_tree)
     iterations: bpy.props.IntProperty(name="Iterations", default=20, min=0, max=256, update=update_tree)
+    segment_length:  bpy.props.FloatProperty(name="Segment Length", default=0.1, min=0, max=10, update=update_tree)
     split_chance: bpy.props.FloatProperty(name="Split Chance %", default=5, min=0, max=10, update=update_tree)
     split_angle: bpy.props.FloatProperty(name="Split Angle", default=45, min=0, max=90, update=update_tree)
     light_source: bpy.props.FloatVectorProperty(name="Light Source", default=(0, 0, 1000), update=update_tree)
@@ -73,13 +74,20 @@ class GROWTREE_OT_create_tree(bpy.types.Operator):
         mesh = self.create_tree_mesh(tree_parameters)
         obj_name = "Created Tree"
         
+        # Unlink and remove the old object if it exists
         if obj_name in bpy.data.objects:
-            bpy.data.objects.remove(bpy.data.objects[obj_name], do_unlink=True)
+            old_obj = bpy.data.objects[obj_name]
+            if old_obj.name in context.collection.objects:
+                context.collection.objects.unlink(old_obj)
+            bpy.data.objects.remove(old_obj)
 
+        # Create a new object and link it to the scene
         obj = bpy.data.objects.new(obj_name, mesh)
-        bpy.context.collection.objects.link(obj)
+        context.collection.objects.link(obj)
 
         return {'FINISHED'}
+
+
     
 
     def create_tree_mesh(self, tree_parameters):
@@ -93,7 +101,7 @@ class GROWTREE_OT_create_tree(bpy.types.Operator):
         def get_direction(previous_point1, previous_point2):
             direction = (previous_point1 - previous_point2).normalized()
             random_direction = Vector((random.uniform(-1, 1), random.uniform(-1, 1), random.uniform(-1, 1))).normalized()
-            final_direction = (direction + random_direction * 0.05).normalized()*-0.1
+            final_direction = -(direction + random_direction * 0.05).normalized()
             return final_direction
 
         def grow_step(sections, tree_parameters):
@@ -108,7 +116,7 @@ class GROWTREE_OT_create_tree(bpy.types.Operator):
                     section.length = section.length + 1
                     last_point = section.points[-1]
                     quasi_last_point = section.points[-2]
-                    new_point = last_point + get_direction(quasi_last_point, last_point)
+                    new_point = last_point + get_direction(quasi_last_point, last_point) * tree_parameters.segment_length
                     section.points.append(new_point)
 
         def check_splits(sections, tree_parameters, iteration_number):
@@ -170,8 +178,10 @@ class GROWTREE_OT_create_tree(bpy.types.Operator):
                     direction2.rotate(Quaternion(direction2.cross(random_direction).normalized(), math.radians(angle2)))
 
                     # Now calculating the effects on the new direction, then adding it to the new sections.
-                    new_section1.points.extend([new_section1.points[-1] + get_branches_direction(direction1, new_section1, tree_parameters)])
-                    new_section2.points.extend([new_section2.points[-1] + get_branches_direction(direction2, new_section2, tree_parameters)])
+                    new_section1.points.extend([new_section1.points[-1] + \
+                        get_branches_direction(direction1, new_section1, tree_parameters) * tree_parameters.segment_length])
+                    new_section2.points.extend([new_section2.points[-1] + \
+                        get_branches_direction(direction2, new_section2, tree_parameters) * tree_parameters.segment_length])
 
                     new_sections.extend([new_section1, new_section2])
 
@@ -221,11 +231,11 @@ class GROWTREE_OT_create_tree(bpy.types.Operator):
 
         def create_section_mesh(section, branch_resolution):
             if section.parent is None:
-                radius1 = 1
+                radius1 = section.weight
             else:
-                radius1 = section.parent.weight / section.parent.length
+                radius1 = section.parent.weight / section.weight
             
-            radius2 = section.weight / section.length
+            radius2 = section.weight
 
             mesh = bpy.data.meshes.new("Branch")
             bm = bmesh.new()
@@ -243,8 +253,8 @@ class GROWTREE_OT_create_tree(bpy.types.Operator):
                     cap_ends=True,
                     cap_tris=False,
                     segments=branch_resolution,
-                    diameter1=r1,
-                    diameter2=r2,
+                    radius1=r1,
+                    radius2=r2,
                     depth=(point2 - point1).length,
                     matrix=Matrix.Translation(point1).normalized() @ Matrix.Rotation(Vector((0, 0, 1)).angle(point2 - point1, 0), 4, (point2 - point1).normalized())
                 )
@@ -253,7 +263,6 @@ class GROWTREE_OT_create_tree(bpy.types.Operator):
             bm.free()
 
             return mesh
-
 
         mesh = bpy.data.meshes.new("Tree")
         bm = bmesh.new()
@@ -270,12 +279,26 @@ class GROWTREE_OT_create_tree(bpy.types.Operator):
             new_sections = check_splits(sections, tree_parameters, iteration_number)
             sections.extend(new_sections)
 
-        for section in sections:
-            v0 = bm.verts.new(section.points[0])
-            for i in range(len(section.points) - 1):
-                v1 = bm.verts.new(section.points[i + 1])
-                bm.edges.new([v0, v1])
-                v0 = v1
+        # Creating main mesh
+        mesh = bpy.data.meshes.new("Tree")
+        bm = bmesh.new()
+
+        if tree_parameters.generate_mesh:
+            # Generate mesh with cylinders
+            for section in sections:
+                section_mesh = create_section_mesh(section, tree_parameters.branch_resolution)
+                temp_bm = bmesh.new()
+                temp_bm.from_mesh(section_mesh)
+                temp_bm.to_mesh(mesh)
+                temp_bm.free()
+        else:
+            # Generate mesh with segments
+            for section in sections:
+                v0 = bm.verts.new(section.points[0])
+                for i in range(len(section.points) - 1):
+                    v1 = bm.verts.new(section.points[i + 1])
+                    bm.edges.new([v0, v1])
+                    v0 = v1
 
         bm.to_mesh(mesh)
         bm.free()
