@@ -37,6 +37,7 @@ class GROWTREE_PG_tree_parameters(bpy.types.PropertyGroup):
     seed: bpy.props.IntProperty(name="Seed", default=0, update=update_tree)
     iterations: bpy.props.IntProperty(name="Iterations", default=20, min=0, max=256, update=update_tree)
     segment_length:  bpy.props.FloatProperty(name="Segment Length", default=0.1, min=0, max=10, update=update_tree)
+    radius: bpy.props.FloatProperty(name="Trunk Radius", default=0.5, min=0.1, max=10, update=update_tree)
     split_chance: bpy.props.FloatProperty(name="Split Chance %", default=5, min=0, max=10, update=update_tree)
     split_angle: bpy.props.FloatProperty(name="Split Angle", default=45, min=0, max=90, update=update_tree)
     light_source: bpy.props.FloatVectorProperty(name="Light Source", default=(0, 0, 1000), update=update_tree)
@@ -87,8 +88,6 @@ class GROWTREE_OT_create_tree(bpy.types.Operator):
 
         return {'FINISHED'}
 
-
-    
 
     def create_tree_mesh(self, tree_parameters):
         
@@ -228,42 +227,77 @@ class GROWTREE_OT_create_tree(bpy.types.Operator):
             z = math.cos(phi)
             
             return Vector((x, y, z)).normalized()
+        
+        def create_circle_verts(position, direction, radius, resolution):
+            circle_verts = []
 
-        def create_section_mesh(section, branch_resolution):
+            rotation = direction.to_track_quat('Z', 'Y').to_matrix().to_4x4()
+
+            for i in range(resolution):
+                angle = (2 * math.pi / resolution) * i
+                x = position.x + radius * math.cos(angle)
+                y = position.y + radius * math.sin(angle)
+                z = position.z
+
+                vertex = Vector((x, y, z))
+                vertex = rotation @ (vertex - position) + position
+                circle_verts.append(vertex)
+
+            return circle_verts
+
+        def create_section_mesh(section, tree_parameters):
+            initial_weight = tree_parameters.tree_weight_factor * tree_parameters.iterations
             if section.parent is None:
-                radius1 = section.weight
+                radius = tree_parameters.radius
             else:
-                radius1 = section.parent.weight / section.weight
-            
-            radius2 = section.weight
+                radius = math.sqrt(section.weight / initial_weight) * tree_parameters.radius
 
             mesh = bpy.data.meshes.new("Branch")
             bm = bmesh.new()
 
+            previous_circle_verts = None
+            bottom_bm_verts = None
+            bottom_bm_edges = None
+
             for i in range(len(section.points) - 1):
-                point1 = section.points[i]
-                point2 = section.points[i + 1]
-                t = i / (len(section.points) - 2)
+                current_point = section.points[i]
+                next_point = section.points[i + 1]
+                direction = (next_point - current_point).normalized()
 
-                r1 = radius1 * (1 - t) + radius2 * t
-                r2 = radius1 * (1 - (t + 1 / (len(section.points) - 2))) + radius2 * (t + 1 / (len(section.points) - 2))
-
-                bmesh.ops.create_cone(
-                    bm,
-                    cap_ends=True,
-                    cap_tris=False,
-                    segments=branch_resolution,
-                    radius1=r1,
-                    radius2=r2,
-                    depth=(point2 - point1).length,
-                    matrix=Matrix.Translation(point1).normalized() @ Matrix.Rotation(Vector((0, 0, 1)).angle(point2 - point1, 0), 4, (point2 - point1).normalized())
+                current_circle_verts = create_circle_verts(
+                    current_point, direction, radius, tree_parameters.branch_resolution
                 )
+                
+                # Creating this loop's vertices and edges:
+                bm_verts = []
+                for j in range(tree_parameters.branch_resolution):
+                    bm_verts.append(bm.verts.new(current_circle_verts[j]))
 
+                bm_edges = []
+                for j in range(tree_parameters.branch_resolution):
+                    v0 = bm_verts[j]
+                    v1 = bm_verts[(j + 1) % tree_parameters.branch_resolution]
+                    if (v0, v1) not in bm.edges and (v1, v0) not in bm.edges:
+                        bm_edges.append(bm.edges.new([v0, v1]))
+                # If none, filling the bottom.
+                if previous_circle_verts is None: 
+                    bmesh.ops.contextual_create(bm, geom=bm_verts)
+
+                # else, calling bridge loop    
+                if previous_circle_verts is not None:
+                    edge_loops = bottom_bm_edges + bm_edges
+                    bmesh.ops.bridge_loops(bm, edges=edge_loops)
+
+                previous_circle_verts = current_circle_verts
+                bottom_bm_verts = bm_verts.copy()
+                bottom_bm_edges = bm_edges.copy()
+
+            bm.normal_update()
             bm.to_mesh(mesh)
             bm.free()
 
             return mesh
-
+        
         mesh = bpy.data.meshes.new("Tree")
         bm = bmesh.new()
 
@@ -284,13 +318,33 @@ class GROWTREE_OT_create_tree(bpy.types.Operator):
         bm = bmesh.new()
 
         if tree_parameters.generate_mesh:
+            section_matrix = Matrix.Identity(4)
+            
             # Generate mesh with cylinders
             for section in sections:
-                section_mesh = create_section_mesh(section, tree_parameters.branch_resolution)
+                section_mesh = create_section_mesh(section, tree_parameters)
                 temp_bm = bmesh.new()
                 temp_bm.from_mesh(section_mesh)
-                temp_bm.to_mesh(mesh)
+                temp_bm.transform(section_matrix)
+                bmesh.ops.transform(temp_bm, matrix=section_matrix, verts=temp_bm.verts)
+                bmesh.ops.contextual_create(temp_bm, geom=temp_bm.edges)
+                vertex_map = {}
+
+                for v in temp_bm.verts:
+                    new_vert = bm.verts.new(v.co)
+                    vertex_map[v.index] = new_vert
+                bm.verts.ensure_lookup_table()
+
+                for e in temp_bm.edges:
+                    bm.edges.new([vertex_map[e.verts[0].index], vertex_map[e.verts[1].index]])
+                bm.edges.ensure_lookup_table()
+
+                for f in temp_bm.faces:
+                    bm.faces.new([vertex_map[v.index] for v in f.verts])  # Add this line
+                bm.faces.ensure_lookup_table()  # Add this line
+
                 temp_bm.free()
+
         else:
             # Generate mesh with segments
             for section in sections:
@@ -300,8 +354,9 @@ class GROWTREE_OT_create_tree(bpy.types.Operator):
                     bm.edges.new([v0, v1])
                     v0 = v1
 
-        bm.to_mesh(mesh)
-        bm.free()
+        bm.to_mesh(mesh)  # Keep this line
+        bm.free()  # Keep this line
+
 
         return mesh
 
