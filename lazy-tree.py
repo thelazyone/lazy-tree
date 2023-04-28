@@ -41,7 +41,9 @@ class GROWTREE_PG_tree_parameters(bpy.types.PropertyGroup):
     split_chance: bpy.props.FloatProperty(name="Split Chance %", default=5, min=0, max=10, update=update_tree)
     split_angle: bpy.props.FloatProperty(name="Split Angle", default=45, min=0, max=90, update=update_tree)
     light_source: bpy.props.FloatVectorProperty(name="Light Source", default=(0, 0, 1000), update=update_tree)
-    light_searching: bpy.props.FloatProperty(name="Light Searching", default=0.5, min=0, max=0.5, update=update_tree)
+    light_searching_top: bpy.props.FloatProperty(name="Light Searching Top", default=0.5, min=0, max=2, update=update_tree)
+    light_searching_bottom: bpy.props.FloatProperty(name="Light Searching Bottom", default=0.5, min=0, max=2, update=update_tree)
+    light_searching_edges: bpy.props.FloatProperty(name="Light Searching Fringes", default=0.5, min=0, max=5, update=update_tree)
     ground_avoiding: bpy.props.FloatProperty(name="Ground Avoiding", default=0.5, min=0, max=3, update=update_tree)
     trunk_gravity: bpy.props.FloatProperty(name="Trunk Gravity", default=0.5, min=0, max=10, update=update_tree)
     split_ratio_bottom: bpy.props.FloatProperty(name="Branch Split Ratio Bottom", default=0.4, min=0, max=0.5, update=update_tree)
@@ -178,19 +180,17 @@ class GROWTREE_OT_create_tree(bpy.types.Operator):
 
                     # Now calculating the effects on the new direction, then adding it to the new sections.
                     new_section1.points.extend([new_section1.points[-1] + \
-                        get_branches_direction(direction1, new_section1, tree_parameters) * tree_parameters.segment_length])
+                        get_branches_direction(direction1, new_section1, tree_parameters, iteration_number) *\
+                            tree_parameters.segment_length])
                     new_section2.points.extend([new_section2.points[-1] + \
-                        get_branches_direction(direction2, new_section2, tree_parameters) * tree_parameters.segment_length])
+                        get_branches_direction(direction2, new_section2, tree_parameters, iteration_number) *\
+                            tree_parameters.segment_length])
 
                     new_sections.extend([new_section1, new_section2])
 
             return new_sections
 
-        def get_branches_direction(direction, section, tree_parameters):
-            
-            # Random direction is calculated in theta-phi to get a more uniform distribution.
-            random_direction = uniform_random_direction()
-
+        def get_branches_direction(direction, section, tree_parameters, iteration_number):
             # Combining the random direction with the light direction
             light_direction = Vector((tree_parameters.light_source[0], tree_parameters.light_source[1], tree_parameters.light_source[2])).normalized()
             
@@ -200,9 +200,16 @@ class GROWTREE_OT_create_tree(bpy.types.Operator):
             gravity_strength = tree_parameters.trunk_gravity * section.weight / root_weight
             gravity_vector = gravity_strength * gravity_direction * Vector((direction.x, direction.y, 0)).length
             
+            # Light Searching parameter
+            progress = iteration_number / tree_parameters.iterations
+            light_searching = \
+                tree_parameters.light_searching_bottom * (1 - progress) + \
+                tree_parameters.light_searching_top * progress + \
+                tree_parameters.light_searching_edges * (max(0, progress-0.8) * 5)
+
             # Adding the various effects and normalizing.
             direction = direction + \
-                light_direction * tree_parameters.light_searching * 0.1 + \
+                light_direction * light_searching * 0.1 + \
                 gravity_vector
             direction = direction.normalized()
 
