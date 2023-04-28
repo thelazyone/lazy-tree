@@ -21,12 +21,13 @@ from mathutils import Vector, Quaternion
 
 
 class Section:
-    def __init__(self, points, depth, length, weight, open_end=True):
+    def __init__(self, points, depth, length, weight, open_end=True, parent=None):
         self.points = points
         self.open_end = open_end
         self.depth = depth
         self.length = length
         self.weight = weight
+        self.parent = parent
         
 def update_tree(self, context):
     bpy.ops.growtree.create_tree()
@@ -47,7 +48,8 @@ class GROWTREE_PG_tree_parameters(bpy.types.PropertyGroup):
     tree_weight_factor: bpy.props.FloatProperty(name="Tree Weight", default=10, min=1, max=50, update=update_tree)
     min_length_bottom: bpy.props.FloatProperty(name="Bottom Sections Lenght", default=10, min=1, max=100, update=update_tree)
     min_length_top: bpy.props.FloatProperty(name="Top Sections Lenght", default=5, min=1, max=100, update=update_tree)
-
+    generate_mesh: bpy.props.BoolProperty(name="Generate Mesh", default=False, update=update_tree)
+    branch_resolution: bpy.props.IntProperty(name="Branch Resolution", default=8, min=3, max=32, update=update_tree)
 
 class GROWTREE_OT_create_tree(bpy.types.Operator):
     bl_idname = "growtree.create_tree"
@@ -147,13 +149,15 @@ class GROWTREE_OT_create_tree(bpy.types.Operator):
                         depth=section.depth + 1, \
                         length= 1, \
                         weight=section.weight * (1 - split_ratio), \
-                        open_end=True)
+                        open_end=True, \
+                        parent=section)
                     new_section2 = Section( \
                         points=section.points[-1:], \
                         depth=section.depth + 1, \
                         length= 1, \
                         weight=section.weight * (split_ratio), \
-                        open_end=True)
+                        open_end=True, \
+                        parent=section)
 
                     # Rotating the branches along a random direction. The split is handled
                     # through the split_ratio parameter before. 
@@ -214,6 +218,41 @@ class GROWTREE_OT_create_tree(bpy.types.Operator):
             z = math.cos(phi)
             
             return Vector((x, y, z)).normalized()
+
+        def create_section_mesh(section, branch_resolution):
+            if section.parent is None:
+                radius1 = 1
+            else:
+                radius1 = section.parent.weight / section.parent.length
+            
+            radius2 = section.weight / section.length
+
+            mesh = bpy.data.meshes.new("Branch")
+            bm = bmesh.new()
+
+            for i in range(len(section.points) - 1):
+                point1 = section.points[i]
+                point2 = section.points[i + 1]
+                t = i / (len(section.points) - 2)
+
+                r1 = radius1 * (1 - t) + radius2 * t
+                r2 = radius1 * (1 - (t + 1 / (len(section.points) - 2))) + radius2 * (t + 1 / (len(section.points) - 2))
+
+                bmesh.ops.create_cone(
+                    bm,
+                    cap_ends=True,
+                    cap_tris=False,
+                    segments=branch_resolution,
+                    diameter1=r1,
+                    diameter2=r2,
+                    depth=(point2 - point1).length,
+                    matrix=Matrix.Translation(point1).normalized() @ Matrix.Rotation(Vector((0, 0, 1)).angle(point2 - point1, 0), 4, (point2 - point1).normalized())
+                )
+
+            bm.to_mesh(mesh)
+            bm.free()
+
+            return mesh
 
 
         mesh = bpy.data.meshes.new("Tree")
