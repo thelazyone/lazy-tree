@@ -65,7 +65,7 @@ class GROWTREE_OT_create_tree(bpy.types.Operator):
                         
         # Before calculating a new tree, making sure that the amount of segments isn't 
         # likely to exceed a certain amount. let's say 10000.
-        max_segments = 10000 
+        max_segments = 100000 
         est_segments = pow(1 + tree_parameters.split_chance * 0.01, tree_parameters.iterations)
         if  est_segments > max_segments:
             self.report({'WARNING'}, \
@@ -211,6 +211,7 @@ class GROWTREE_OT_create_tree(bpy.types.Operator):
             return direction.normalized()
             
         def avoid_ground(value, parameter):
+            
             # Cubic function that maps -1 to 0 and 1 to 1
             def cubic_function(x):
                 return (x + 1) ** 3 / 8
@@ -249,8 +250,10 @@ class GROWTREE_OT_create_tree(bpy.types.Operator):
             initial_weight = tree_parameters.tree_weight_factor * tree_parameters.iterations
             if section.parent is None:
                 radius = tree_parameters.radius
+                parent_radius = radius
             else:
                 radius = math.sqrt(section.weight / initial_weight) * tree_parameters.radius
+                parent_radius = math.sqrt(section.parent.weight / initial_weight) * tree_parameters.radius
 
             mesh = bpy.data.meshes.new("Branch")
             bm = bmesh.new()
@@ -258,14 +261,27 @@ class GROWTREE_OT_create_tree(bpy.types.Operator):
             previous_circle_verts = None
             bottom_bm_verts = None
             bottom_bm_edges = None
-
-            for i in range(len(section.points) - 1):
+            
+            for i in range(len(section.points)):
                 current_point = section.points[i]
-                next_point = section.points[i + 1]
-                direction = (next_point - current_point).normalized()
+                direction = Vector((0,0,1))
+                if i > 1: 
+                    prev_point = section.points[i - 1]
+                    direction = (current_point - prev_point).normalized()
+
+                # Calculate the lerp factor based on the current index in the section points
+                lerp_factor = i / (len(section.points) - 1)
+                lerp_factor = math.sqrt(lerp_factor)
+
+                # If the section has a parent, modify the direction and radius
+                lerped_radius = radius
+                if section.parent:
+                    parent_end_direction = (section.parent.points[-1] - section.parent.points[-2]).normalized()
+                    direction = direction.lerp(parent_end_direction, 1-lerp_factor)
+                    lerped_radius = (parent_radius * (1 - lerp_factor)) + (radius * (lerp_factor))
 
                 current_circle_verts = create_circle_verts(
-                    current_point, direction, radius, tree_parameters.branch_resolution
+                    current_point, direction, lerped_radius, tree_parameters.branch_resolution
                 )
                 
                 # Creating this loop's vertices and edges:
@@ -279,6 +295,7 @@ class GROWTREE_OT_create_tree(bpy.types.Operator):
                     v1 = bm_verts[(j + 1) % tree_parameters.branch_resolution]
                     if (v0, v1) not in bm.edges and (v1, v0) not in bm.edges:
                         bm_edges.append(bm.edges.new([v0, v1]))
+
                 # If none, filling the bottom.
                 if previous_circle_verts is None: 
                     bmesh.ops.contextual_create(bm, geom=bm_verts)
@@ -287,6 +304,10 @@ class GROWTREE_OT_create_tree(bpy.types.Operator):
                 if previous_circle_verts is not None:
                     edge_loops = bottom_bm_edges + bm_edges
                     bmesh.ops.bridge_loops(bm, edges=edge_loops)
+                    
+                # If last element, closing.
+                if i == len(section.points) - 1:
+                    bmesh.ops.contextual_create(bm, geom=bm_verts)
 
                 previous_circle_verts = current_circle_verts
                 bottom_bm_verts = bm_verts.copy()
