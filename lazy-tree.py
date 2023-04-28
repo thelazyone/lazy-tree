@@ -35,7 +35,7 @@ def update_tree(self, context):
 # Blender classes:        
 class GROWTREE_PG_tree_parameters(bpy.types.PropertyGroup):
     seed: bpy.props.IntProperty(name="Seed", default=0, update=update_tree)
-    iterations: bpy.props.IntProperty(name="Iterations", default=20, min=0, max=256, update=update_tree)
+    iterations: bpy.props.IntProperty(name="Iterations", default=20, min=0, max=1024, update=update_tree)
     segment_length:  bpy.props.FloatProperty(name="Segment Length", default=0.1, min=0, max=10, update=update_tree)
     radius: bpy.props.FloatProperty(name="Trunk Radius", default=0.5, min=0.1, max=10, update=update_tree)
     split_chance: bpy.props.FloatProperty(name="Split Chance %", default=5, min=0, max=10, update=update_tree)
@@ -54,7 +54,8 @@ class GROWTREE_PG_tree_parameters(bpy.types.PropertyGroup):
     min_length_top: bpy.props.FloatProperty(name="Top Sections Lenght", default=5, min=1, max=100, update=update_tree)
     generate_mesh: bpy.props.BoolProperty(name="Generate Mesh", default=False, update=update_tree)
     branch_resolution: bpy.props.IntProperty(name="Branch Resolution", default=8, min=3, max=32, update=update_tree)
-
+    minimum_thickness: bpy.props.FloatProperty(name="Min Thickness", default=0.05, min=0.01, max=0.5, update=update_tree)
+    
 class GROWTREE_OT_create_tree(bpy.types.Operator):
     bl_idname = "growtree.create_tree"
     bl_label = "Create Tree"
@@ -126,8 +127,10 @@ class GROWTREE_OT_create_tree(bpy.types.Operator):
             for section in sections:
                 if section.open_end:
                     
-                    # If the weight is below a certain value, stop growing
-                    if section.length > section.weight:
+                    # Checking for thickness
+                    initial_weight = tree_parameters.tree_weight_factor * tree_parameters.iterations
+                    radius = math.sqrt(section.weight / initial_weight) * tree_parameters.radius
+                    if radius < tree_parameters.minimum_thickness / 2:
                         section.open_end = False
                         continue
                     
@@ -157,6 +160,10 @@ class GROWTREE_OT_create_tree(bpy.types.Operator):
                 chance_factor = math.exp(section.length - min_length) - 1
                 if section.open_end and random.random() < tree_parameters.split_chance * 0.01 * chance_factor:
                     
+                    root_weight = tree_parameters.tree_weight_factor * tree_parameters.iterations
+                    thickness_param = math.sqrt(1 - section.weight / root_weight)
+                    min_length = tree_parameters.min_length_bottom * (1 - thickness_param) + \
+                        tree_parameters.min_length_top * thickness_param
                     if (section.length < min_length):
                         continue
 
@@ -213,7 +220,7 @@ class GROWTREE_OT_create_tree(bpy.types.Operator):
                     new_section2.points.extend([new_section2.points[-1] + \
                         get_branches_direction(direction2, new_section2, tree_parameters, iteration_number) *\
                             tree_parameters.segment_length])
-
+                            
                     new_sections.extend([new_section1, new_section2])
 
             return new_sections
