@@ -125,7 +125,7 @@ class GROWTREE_OT_create_tree(bpy.types.Operator):
 
         def grow_step(sections, tree_parameters, iteration_number):
             for section in sections:
-                if section.open_end:
+                if section.open_end:  
                     
                     # Checking for thickness
                     initial_weight = tree_parameters.tree_weight_factor * tree_parameters.iterations
@@ -182,9 +182,12 @@ class GROWTREE_OT_create_tree(bpy.types.Operator):
                     # Calculating the weight of the two branches. The distribution goes from 0 to
                     # 0.5 (equal split). the new branch is always the smaller one.
                     progress = iteration_number / tree_parameters.iterations
+                    # split_ratio = \
+                    #     tree_parameters.split_ratio_bottom * (1 - progress) + \
+                    #     tree_parameters.split_ratio_top * progress
                     split_ratio = \
-                        tree_parameters.split_ratio_bottom * (1 - progress) + \
-                        tree_parameters.split_ratio_top * progress
+                        tree_parameters.split_ratio_bottom * (1 - thickness_param) + \
+                        tree_parameters.split_ratio_top * thickness_param
                     split_ratio = split_ratio * (1 - tree_parameters.split_ratio_random) + \
                         random.uniform(0.,1.) * tree_parameters.split_ratio_random 
                         
