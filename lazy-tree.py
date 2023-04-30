@@ -38,6 +38,7 @@ class GROWTREE_PG_tree_parameters(bpy.types.PropertyGroup):
     iterations: bpy.props.IntProperty(name="Iterations", default=20, min=0, max=1024, update=update_tree)
     segment_length:  bpy.props.FloatProperty(name="Segment Length", default=0.1, min=0, max=10, update=update_tree)
     radius: bpy.props.FloatProperty(name="Trunk Radius", default=0.5, min=0.1, max=10, update=update_tree)
+    chunkyness: bpy.props.FloatProperty(name="Chunkyness", default=0.5, min=0.1, max=2, update=update_tree)
     split_chance: bpy.props.FloatProperty(name="Split Chance %", default=5, min=0, max=10, update=update_tree)
     split_angle: bpy.props.FloatProperty(name="Split Angle", default=45, min=0, max=90, update=update_tree)
     light_source: bpy.props.FloatVectorProperty(name="Light Source", default=(0, 0, 1000), update=update_tree)
@@ -49,7 +50,7 @@ class GROWTREE_PG_tree_parameters(bpy.types.PropertyGroup):
     split_ratio_bottom: bpy.props.FloatProperty(name="Branch Split Ratio Bottom", default=0.4, min=0, max=0.5, update=update_tree)
     split_ratio_top: bpy.props.FloatProperty(name="Branch Split Ratio Top", default=0.1, min=0, max=0.5, update=update_tree)
     split_ratio_random: bpy.props.FloatProperty(name="Branch Split Ratio Randomness", default=0.1, min=0, max=1, update=update_tree)
-    tree_weight_factor: bpy.props.FloatProperty(name="Tree Weight", default=10, min=1, max=50, update=update_tree)
+    tree_ground_factor: bpy.props.FloatProperty(name="Ground Trunk Factor", default=0.2, min=0, max=1, update=update_tree)
     min_length_bottom: bpy.props.FloatProperty(name="Bottom Sections Lenght", default=10, min=1, max=100, update=update_tree)
     min_length_top: bpy.props.FloatProperty(name="Top Sections Lenght", default=5, min=1, max=100, update=update_tree)
     generate_mesh: bpy.props.BoolProperty(name="Generate Mesh", default=False, update=update_tree)
@@ -103,7 +104,7 @@ class GROWTREE_OT_create_tree(bpy.types.Operator):
         def get_light_weight(section_weight, iteration_number, tree_parameters):
              # Light Searching parameter
             progress = iteration_number / tree_parameters.iterations
-            root_weight = tree_parameters.tree_weight_factor * tree_parameters.iterations
+            root_weight = tree_parameters.iterations
             thickness = math.sqrt(1 - section_weight / root_weight)
             light_searching = \
                 tree_parameters.light_searching_bottom * (1 - progress) + \
@@ -122,14 +123,34 @@ class GROWTREE_OT_create_tree(bpy.types.Operator):
             final_direction = (direction + random_direction * 0.05 +\
                  light_direction * get_light_weight(section_weight, iteration_number, tree_parameters)* 0.01).normalized()
             return final_direction
+        
+
+        def get_thickness_parameter_base(tree_parameters, section):
+            # The parameter is close to 1 when the element is thicker.
+            initial_weight = tree_parameters.iterations
+            parameter = math.pow(section.weight / initial_weight, tree_parameters.chunkyness)
+            return parameter
+
+        def get_thickness_parameter(tree_parameters, section):
+            parameter = get_thickness_parameter_base(tree_parameters, section)
+
+            # Adding another factor linked with the tree height. 
+            max_height = tree_parameters.segment_length * tree_parameters.iterations
+            section_height = section.points[0].z
+            parameter = parameter * (1-tree_parameters.tree_ground_factor) + \
+                section_height/max_height * (tree_parameters.tree_ground_factor)
+            return parameter
+        
+        def get_radius_from_weight(tree_parameters, section):
+            return get_thickness_parameter_base(tree_parameters, section) * tree_parameters.radius
 
         def grow_step(sections, tree_parameters, iteration_number):
             for section in sections:
                 if section.open_end:  
                     
                     # Checking for thickness
-                    initial_weight = tree_parameters.tree_weight_factor * tree_parameters.iterations
-                    radius = math.sqrt(section.weight / initial_weight) * tree_parameters.radius
+                    radius = get_radius_from_weight(tree_parameters, section)
+
                     if radius < tree_parameters.minimum_thickness / 2:
                         section.open_end = False
                         continue
@@ -160,8 +181,7 @@ class GROWTREE_OT_create_tree(bpy.types.Operator):
                 chance_factor = math.exp(section.length - min_length) - 1
                 if section.open_end and random.random() < tree_parameters.split_chance * 0.01 * chance_factor:
                     
-                    root_weight = tree_parameters.tree_weight_factor * tree_parameters.iterations
-                    thickness_param = math.sqrt(1 - section.weight / root_weight)
+                    thickness_param = get_thickness_parameter(tree_parameters, section)
                     min_length = tree_parameters.min_length_bottom * (1 - thickness_param) + \
                         tree_parameters.min_length_top * thickness_param
                     if (section.length < min_length):
@@ -182,12 +202,9 @@ class GROWTREE_OT_create_tree(bpy.types.Operator):
                     # Calculating the weight of the two branches. The distribution goes from 0 to
                     # 0.5 (equal split). the new branch is always the smaller one.
                     progress = iteration_number / tree_parameters.iterations
-                    # split_ratio = \
-                    #     tree_parameters.split_ratio_bottom * (1 - progress) + \
-                    #     tree_parameters.split_ratio_top * progress
                     split_ratio = \
-                        tree_parameters.split_ratio_bottom * (1 - thickness_param) + \
-                        tree_parameters.split_ratio_top * thickness_param
+                        tree_parameters.split_ratio_bottom * (thickness_param) + \
+                        tree_parameters.split_ratio_top * (1-thickness_param)
                     split_ratio = split_ratio * (1 - tree_parameters.split_ratio_random) + \
                         random.uniform(0.,1.) * tree_parameters.split_ratio_random 
                         
@@ -233,21 +250,18 @@ class GROWTREE_OT_create_tree(bpy.types.Operator):
             light_direction = Vector((tree_parameters.light_source[0], tree_parameters.light_source[1], tree_parameters.light_source[2])).normalized()
             
             # Gravity depends on how much the branch weight is.
-            root_weight = tree_parameters.tree_weight_factor * tree_parameters.iterations
+            root_weight = tree_parameters.iterations
             gravity_direction = Vector((0, 0, -1))
             gravity_strength = tree_parameters.trunk_gravity * section.weight / root_weight
             gravity_vector = gravity_strength * gravity_direction * Vector((direction.x, direction.y, 0)).length
             
             # Light Searching parameter
             progress = iteration_number / tree_parameters.iterations
-            root_weight = tree_parameters.tree_weight_factor * tree_parameters.iterations
-            thickness = math.sqrt(1 - section.weight / root_weight)
+            thickness = get_thickness_parameter(tree_parameters, section)
             light_searching = \
                 tree_parameters.light_searching_bottom * (1 - progress) + \
                 tree_parameters.light_searching_top * progress + \
                 tree_parameters.light_searching_edges * (max(0, thickness-0.97) * 5)
-            print(f"progress value: = {thickness} ")
-
 
             # Adding the various effects and normalizing.
             direction = direction + \
@@ -296,19 +310,16 @@ class GROWTREE_OT_create_tree(bpy.types.Operator):
             return circle_verts
 
         def create_section_mesh(section, tree_parameters):
-            initial_weight = tree_parameters.tree_weight_factor * tree_parameters.iterations
             if section.parent is None:
                 radius = tree_parameters.radius
                 parent_radius = radius
             else:
-                radius = math.sqrt(section.weight / initial_weight) * tree_parameters.radius
-                parent_radius = math.sqrt(section.parent.weight / initial_weight) * tree_parameters.radius
-
+                radius = get_radius_from_weight(tree_parameters, section)
+                parent_radius =  get_radius_from_weight(tree_parameters, section.parent)
             mesh = bpy.data.meshes.new("Branch")
             bm = bmesh.new()
 
             previous_circle_verts = None
-            bottom_bm_verts = None
             bottom_bm_edges = None
             
             for i in range(len(section.points)):
@@ -373,7 +384,7 @@ class GROWTREE_OT_create_tree(bpy.types.Operator):
 
         root_section = Section( \
             points=[Vector((0, 0, 0)),Vector((0, 0, 0.1))], \
-            weight=tree_parameters.tree_weight_factor * tree_parameters.iterations, \
+            weight=tree_parameters.iterations, \
             depth=1,\
             length=1)
         sections = [root_section]
