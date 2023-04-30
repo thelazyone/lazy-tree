@@ -39,7 +39,8 @@ class GROWTREE_PG_tree_parameters(bpy.types.PropertyGroup):
     segment_length:  bpy.props.FloatProperty(name="Segment Length", default=0.1, min=0, max=10, update=update_tree)
     radius: bpy.props.FloatProperty(name="Trunk Radius", default=0.5, min=0.1, max=10, update=update_tree)
     chunkyness: bpy.props.FloatProperty(name="Chunkyness", default=0.5, min=0.1, max=2, update=update_tree)
-    split_chance: bpy.props.FloatProperty(name="Split Chance %", default=5, min=0, max=10, update=update_tree)
+    split_chance_top: bpy.props.FloatProperty(name="Split Chance Top %", default=5, min=0, max=10, update=update_tree)
+    split_chance_bottom: bpy.props.FloatProperty(name="Split Chance Bottom %", default=5, min=0, max=10, update=update_tree)
     split_angle: bpy.props.FloatProperty(name="Split Angle", default=45, min=0, max=90, update=update_tree)
     light_source: bpy.props.FloatVectorProperty(name="Light Source", default=(0, 0, 1000), update=update_tree)
     light_searching_top: bpy.props.FloatProperty(name="Light Searching Top", default=0.5, min=0, max=2, update=update_tree)
@@ -66,15 +67,16 @@ class GROWTREE_OT_create_tree(bpy.types.Operator):
 
     def execute(self, context):
         tree_parameters = context.scene.tree_parameters
-                        
-        # Before calculating a new tree, making sure that the amount of segments isn't 
-        # likely to exceed a certain amount. let's say 10000.
-        max_segments = 100000 
-        est_segments = pow(1 + tree_parameters.split_chance * 0.01, tree_parameters.iterations)
-        if  est_segments > max_segments:
-            self.report({'WARNING'}, \
-                f"Estimated number of segments ({int(est_segments)}) exceeds the limit ({max_segments}). Aborting.")
-            return {'CANCELLED'}
+
+        # TODO decomment this when a proper estimation of the segments is feasible!                        
+        # # Before calculating a new tree, making sure that the amount of segments isn't 
+        # # likely to exceed a certain amount. let's say 10000.
+        # max_segments = 100000 
+        # est_segments = pow(1 + tree_parameters.split_chance * 0.01, tree_parameters.iterations)
+        # if  est_segments > max_segments:
+        #     self.report({'WARNING'}, \
+        #         f"Estimated number of segments ({int(est_segments)}) exceeds the limit ({max_segments}). Aborting.")
+        #     return {'CANCELLED'}
         
         mesh = self.create_tree_mesh(tree_parameters)
         obj_name = "Created Tree"
@@ -169,21 +171,18 @@ class GROWTREE_OT_create_tree(bpy.types.Operator):
 
         def check_splits(sections, tree_parameters, iteration_number):
             
-            # Progress indicates how far in the simulation we are. 
-            # Variable with "bottom" and "top" will be combined based on this.
-            progress = iteration_number / tree_parameters.iterations
-            min_length = tree_parameters.min_length_bottom * (1 - progress) + \
-                tree_parameters.min_length_top * progress
-                
             new_sections = []
             for section in sections:
-                
+                thickness_param = get_thickness_parameter(tree_parameters, section)
+                min_length = tree_parameters.min_length_bottom * (1 - thickness_param) + \
+                    tree_parameters.min_length_top * thickness_param
+                split_chance = tree_parameters.split_chance_bottom * (1 - thickness_param) + \
+                    tree_parameters.split_chance_top * thickness_param
+                split_chance = split_chance * tree_parameters.segment_length
                 chance_factor = math.exp(section.length - min_length) - 1
-                if section.open_end and random.random() < tree_parameters.split_chance * 0.01 * chance_factor:
+                chance_factor = math.sqrt(chance_factor)
+                if section.open_end and random.random() < split_chance * chance_factor:
                     
-                    thickness_param = get_thickness_parameter(tree_parameters, section)
-                    min_length = tree_parameters.min_length_bottom * (1 - thickness_param) + \
-                        tree_parameters.min_length_top * thickness_param
                     if (section.length < min_length):
                         continue
 
@@ -203,8 +202,8 @@ class GROWTREE_OT_create_tree(bpy.types.Operator):
                     # 0.5 (equal split). the new branch is always the smaller one.
                     progress = iteration_number / tree_parameters.iterations
                     split_ratio = \
-                        tree_parameters.split_ratio_bottom * (1-thickness_param) + \
-                        tree_parameters.split_ratio_top * (thickness_param)
+                        tree_parameters.split_ratio_bottom * (thickness_param) + \
+                        tree_parameters.split_ratio_top * (1-thickness_param)
                     split_ratio = split_ratio * (1 - tree_parameters.split_ratio_random) + \
                         random.uniform(0.,1.) * tree_parameters.split_ratio_random 
                         
@@ -338,7 +337,8 @@ class GROWTREE_OT_create_tree(bpy.types.Operator):
                         return 1
                     size = max-min
                     return (1 - math.cos((x - min) * math.pi / size)) / 2
-                lerp_factor = cosine_sigmoid(i / (len(section.points) - 1), 0.0, .7)
+                lerp_limit = radius / parent_radius
+                lerp_factor = cosine_sigmoid(i / (len(section.points) - 1), 0.0, lerp_limit)
                 
                 # If the section has a parent, modify the direction and radius
                 lerped_radius = radius
