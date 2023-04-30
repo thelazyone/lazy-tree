@@ -331,7 +331,9 @@ class GROWTREE_OT_create_tree(bpy.types.Operator):
 
                 # Calculate the lerp factor based on the current index in the section points
                 lerp_factor = i / (len(section.points) - 1)
-                lerp_factor = math.sqrt(lerp_factor)
+                lerp_factor = min(1, lerp_factor * 2)
+                lerp_factor = math.pow(lerp_factor, 1.5)
+                
 
                 # If the section has a parent, modify the direction and radius
                 lerped_radius = radius
@@ -340,8 +342,18 @@ class GROWTREE_OT_create_tree(bpy.types.Operator):
                     direction = direction.lerp(parent_end_direction, 1-lerp_factor)
                     lerped_radius = (parent_radius * (1 - lerp_factor)) + (radius * (lerp_factor))
 
+                    # Calculate the parent's point position projected onto the lerped direction
+                    reference_point = section.parent.points[-1]
+                    projected_point = reference_point + (direction * (current_point - reference_point).dot(direction))
+
+                    # Interpolate between the current point position and the projected point position
+                    lerped_position = current_point.lerp(projected_point, 1-lerp_factor)
+                    
+                else:
+                    lerped_position = current_point
+
                 current_circle_verts = create_circle_verts(
-                    current_point, direction, lerped_radius, tree_parameters.branch_resolution
+                    lerped_position, direction, lerped_radius, tree_parameters.branch_resolution
                 )
                 
                 # Creating this loop's vertices and edges:
