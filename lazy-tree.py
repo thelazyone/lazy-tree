@@ -39,6 +39,8 @@ class GROWTREE_PG_tree_parameters(bpy.types.PropertyGroup):
     segment_length:  bpy.props.FloatProperty(name="Segment Length", default=0.1, min=0, max=10, update=update_tree)
     radius: bpy.props.FloatProperty(name="Trunk Radius", default=0.5, min=0.1, max=10, update=update_tree)
     chunkyness: bpy.props.FloatProperty(name="Chunkyness", default=0.5, min=0.1, max=2, update=update_tree)
+    noise_bottom: bpy.props.FloatProperty(name="Noise Bottom", default=0.5, min=0, max=10, update=update_tree)
+    noise_top: bpy.props.FloatProperty(name="Noise Top", default=0.5, min=0, max=10, update=update_tree)
     split_chance_top: bpy.props.FloatProperty(name="Split Chance Top %", default=5, min=0, max=10, update=update_tree)
     split_chance_bottom: bpy.props.FloatProperty(name="Split Chance Bottom %", default=5, min=0, max=10, update=update_tree)
     split_angle: bpy.props.FloatProperty(name="Split Angle", default=45, min=0, max=90, update=update_tree)
@@ -46,7 +48,7 @@ class GROWTREE_PG_tree_parameters(bpy.types.PropertyGroup):
     light_searching_top: bpy.props.FloatProperty(name="Light Searching Top", default=0.5, min=0, max=2, update=update_tree)
     light_searching_bottom: bpy.props.FloatProperty(name="Light Searching Bottom", default=0.5, min=0, max=2, update=update_tree)
     light_searching_edges: bpy.props.FloatProperty(name="Light Searching Fringes", default=3, min=0, max=10, update=update_tree)
-    ground_avoiding: bpy.props.FloatProperty(name="Ground Avoiding", default=0.5, min=0, max=3, update=update_tree)
+    ground_avoiding: bpy.props.FloatProperty(name="Ground Avoiding", default=0.5, min=0, max=5, update=update_tree)
     trunk_gravity: bpy.props.FloatProperty(name="Trunk Gravity", default=0.5, min=0, max=10, update=update_tree)
     split_ratio_bottom: bpy.props.FloatProperty(name="Branch Split Ratio Bottom", default=0.4, min=0, max=0.5, update=update_tree)
     split_ratio_top: bpy.props.FloatProperty(name="Branch Split Ratio Top", default=0.1, min=0, max=0.5, update=update_tree)
@@ -99,22 +101,28 @@ class GROWTREE_OT_create_tree(bpy.types.Operator):
         
         random.seed(tree_parameters.seed)
     
-        def get_random_value(seed):
-            random.seed(seed)
-            return random.random()
+        def combine_lerp(value_bottom, value_top, parameter):
+            # Expecting bottom to be 1 and top 0
+            return value_bottom * parameter + value_top * (1 - parameter)
         
-        def get_light_weight(section_weight, iteration_number, tree_parameters):
-             # Light Searching parameter
-            progress = iteration_number / tree_parameters.iterations
-            root_weight = tree_parameters.iterations
-            thickness = math.sqrt(1 - section_weight / root_weight)
-            light_searching = \
-                tree_parameters.light_searching_bottom * (1 - progress) + \
-                tree_parameters.light_searching_top * progress + \
+        def cosine_sigmoid(x, min, max):
+            if x < min: 
+                return 0
+            if x > max: 
+                return 1
+            size = max-min
+            return (1 - math.cos((x - min) * math.pi / size)) / 2
+        
+        def softplus(x, factor):
+            return math.log(1 + math.exp(x * factor)) / factor
+        
+        def get_light_weight(section, iteration_number, tree_parameters):
+            thickness = get_thickness_parameter_base(tree_parameters, section)
+            light_searching = combine_lerp(tree_parameters.light_searching_bottom, tree_parameters.light_searching_top, thickness) + \
                 tree_parameters.light_searching_edges * (max(0, thickness-0.97) * 5)
             return light_searching
         
-        def get_growth_direction(previous_point1, previous_point2, section_weight, iteration_number, tree_parameters):
+        def get_growth_direction(previous_point1, previous_point2, section, iteration_number, tree_parameters):
             direction = (previous_point2 - previous_point1).normalized()
             random_direction = Vector((random.uniform(-1, 1), random.uniform(-1, 1), random.uniform(-1, 1))).normalized()
             light_direction = Vector((\
@@ -122,29 +130,31 @@ class GROWTREE_OT_create_tree(bpy.types.Operator):
                 tree_parameters.light_source[1], \
                 tree_parameters.light_source[2])).normalized()
 
-            final_direction = (direction + random_direction * 0.05 +\
-                 light_direction * get_light_weight(section_weight, iteration_number, tree_parameters)* 0.01).normalized()
+            thickness = get_thickness_parameter_base(tree_parameters, section)
+            noise_factor = combine_lerp(tree_parameters.noise_bottom, tree_parameters.noise_top, thickness) * 0.1
+
+            final_direction = (direction + random_direction * noise_factor +\
+                 light_direction * get_light_weight(section, iteration_number, tree_parameters)* 0.01).normalized()
             return final_direction
         
 
         def get_thickness_parameter_base(tree_parameters, section):
             # The parameter is close to 1 when the element is thicker.
             initial_weight = tree_parameters.iterations
-            parameter = math.pow(section.weight / initial_weight, tree_parameters.chunkyness)
+            parameter = section.weight / initial_weight
             return parameter
 
         def get_thickness_parameter(tree_parameters, section):
             parameter = get_thickness_parameter_base(tree_parameters, section)
 
             # Adding another factor linked with the tree height. 
-            max_height = tree_parameters.segment_length * tree_parameters.iterations
+            max_height = 30
             section_height = section.points[0].z
-            parameter = parameter * (1-tree_parameters.tree_ground_factor) + \
-                section_height/max_height * (tree_parameters.tree_ground_factor)
+            parameter = combine_lerp(1 - section_height/max_height, parameter, tree_parameters.tree_ground_factor)
             return parameter
         
         def get_radius_from_weight(tree_parameters, section):
-            return get_thickness_parameter_base(tree_parameters, section) * tree_parameters.radius
+            return  math.pow(get_thickness_parameter_base(tree_parameters, section), tree_parameters.chunkyness)* tree_parameters.radius
 
         def grow_step(sections, tree_parameters, iteration_number):
             for section in sections:
@@ -163,7 +173,7 @@ class GROWTREE_OT_create_tree(bpy.types.Operator):
                     new_point = last_point + get_growth_direction(\
                         quasi_last_point, \
                         last_point, \
-                        section.weight, \
+                        section, \
                         iteration_number, \
                         tree_parameters) *\
                         tree_parameters.segment_length
@@ -174,13 +184,11 @@ class GROWTREE_OT_create_tree(bpy.types.Operator):
             new_sections = []
             for section in sections:
                 thickness_param = get_thickness_parameter(tree_parameters, section)
-                min_length = tree_parameters.min_length_bottom * (1 - thickness_param) + \
-                    tree_parameters.min_length_top * thickness_param
-                split_chance = tree_parameters.split_chance_bottom * (1 - thickness_param) + \
-                    tree_parameters.split_chance_top * thickness_param
+                min_length = combine_lerp(tree_parameters.min_length_bottom, tree_parameters.min_length_top, thickness_param)
+                split_chance = combine_lerp(tree_parameters.split_chance_bottom, tree_parameters.split_chance_top, thickness_param)
                 split_chance = split_chance * tree_parameters.segment_length
                 chance_factor = math.exp(section.length - min_length) - 1
-                chance_factor = math.sqrt(chance_factor)
+                chance_factor = (section.length * tree_parameters.segment_length / min_length)
                 if section.open_end and random.random() < split_chance * chance_factor:
                     
                     if (section.length < min_length):
@@ -194,18 +202,15 @@ class GROWTREE_OT_create_tree(bpy.types.Operator):
                     initial_direction = get_growth_direction(
                         section.points[-2], 
                         section.points[-1], 
-                        section.weight,
+                        section,
                         iteration_number,
                         tree_parameters)
 
                     # Calculating the weight of the two branches. The distribution goes from 0 to
                     # 0.5 (equal split). the new branch is always the smaller one.
                     progress = iteration_number / tree_parameters.iterations
-                    split_ratio = \
-                        tree_parameters.split_ratio_bottom * (thickness_param) + \
-                        tree_parameters.split_ratio_top * (1-thickness_param)
-                    split_ratio = split_ratio * (1 - tree_parameters.split_ratio_random) + \
-                        random.uniform(0.,1.) * tree_parameters.split_ratio_random 
+                    split_ratio = combine_lerp(tree_parameters.split_ratio_bottom, tree_parameters.split_ratio_top, thickness_param)
+                    split_ratio = combine_lerp(random.uniform(0,1), split_ratio, tree_parameters.split_ratio_random) 
                         
                     new_section1 = Section( \
                         points=section.points[-1:], \
@@ -227,8 +232,11 @@ class GROWTREE_OT_create_tree(bpy.types.Operator):
                     direction1 = initial_direction.copy()
                     direction2 = initial_direction.copy()
                     random_direction = uniform_random_direction()
-                    angle1 = -tree_parameters.split_angle * split_ratio
-                    angle2 = tree_parameters.split_angle * (1 - split_ratio)
+
+                    # Angles should depend on the weight of the subsection.
+                    angle1 = -tree_parameters.split_angle * split_ratio * (new_section1.weight / section.weight * 2)
+                    angle2 = tree_parameters.split_angle * (1 - split_ratio) * (new_section1.weight / section.weight * 2)
+
                     direction1.rotate(Quaternion(direction1.cross(random_direction).normalized(), math.radians(angle1)))
                     direction2.rotate(Quaternion(direction2.cross(random_direction).normalized(), math.radians(angle2)))
 
@@ -255,12 +263,7 @@ class GROWTREE_OT_create_tree(bpy.types.Operator):
             gravity_vector = gravity_strength * gravity_direction * Vector((direction.x, direction.y, 0)).length
             
             # Light Searching parameter
-            progress = iteration_number / tree_parameters.iterations
-            thickness = get_thickness_parameter(tree_parameters, section)
-            light_searching = \
-                tree_parameters.light_searching_bottom * (1 - progress) + \
-                tree_parameters.light_searching_top * progress + \
-                tree_parameters.light_searching_edges * (max(0, thickness-0.97) * 5)
+            light_searching = get_light_weight(section, iteration_number, tree_parameters)
 
             # Adding the various effects and normalizing.
             direction = direction + \
@@ -274,12 +277,8 @@ class GROWTREE_OT_create_tree(bpy.types.Operator):
             
         def avoid_ground(value, parameter):
             
-            # Cubic function that maps -1 to 0 and 1 to 1
-            def cubic_function(x):
-                return (x + 1) ** 3 / 8
-
-            # Interpolate between the original value and the cubic function result based on the parameter
-            return value * (1 - parameter) + max(cubic_function(value),value) * parameter  
+            # Interpolate between the original value and the sigmoid
+            return combine_lerp(softplus(value, 6), value, parameter)  
         
         def uniform_random_direction():
             theta = random.uniform(0, 2 * math.pi)
@@ -330,14 +329,7 @@ class GROWTREE_OT_create_tree(bpy.types.Operator):
                     direction = (current_point - prev_point).normalized()
 
                 # Calculate the lerp factor based on the current index in the section points
-                def cosine_sigmoid(x, min, max):
-                    if x < min: 
-                        return 0
-                    if x > max: 
-                        return 1
-                    size = max-min
-                    return (1 - math.cos((x - min) * math.pi / size)) / 2
-                lerp_limit = radius / parent_radius
+                lerp_limit = math.sqrt(radius / parent_radius)
                 lerp_factor = cosine_sigmoid(i / (len(section.points) - 1), 0.0, lerp_limit)
                 
                 # If the section has a parent, modify the direction and radius
@@ -345,7 +337,7 @@ class GROWTREE_OT_create_tree(bpy.types.Operator):
                 if section.parent:
                     parent_end_direction = (section.parent.points[-1] - section.parent.points[-2]).normalized()
                     direction = direction.lerp(parent_end_direction, 1-lerp_factor)
-                    lerped_radius = (parent_radius * (1 - lerp_factor)) + (radius * (lerp_factor))
+                    lerped_radius = combine_lerp(radius, parent_radius, lerp_factor)
 
                     # Calculate the parent's point position projected onto the lerped direction
                     if i == 0:
