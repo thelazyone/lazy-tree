@@ -64,11 +64,6 @@ def uniform_random_direction():
     
     return Vector((x, y, z)).normalized()
 
-# TODOS:
-# Add general presets
-# Split sections, each with a preset
-# Add 3D noise 
-
 class Section:
     def __init__(self, points, depth, length, weight, open_end=True, parent=None, parent_id=None):
         self.points = points
