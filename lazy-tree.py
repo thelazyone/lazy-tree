@@ -226,7 +226,6 @@ class GROWTREE_OT_create_tree(bpy.types.Operator):
                 min_length = combine_lerp(tree_parameters.min_length_bottom, tree_parameters.min_length_top, thickness_param)
                 split_chance = combine_lerp(tree_parameters.split_chance_bottom, tree_parameters.split_chance_top, thickness_param)
                 split_chance = split_chance * tree_parameters.segment_length
-                chance_factor = math.exp(section.length - min_length) - 1
                 chance_factor = (section.length * tree_parameters.segment_length / min_length)
                 if section.open_end and random.random() < split_chance * chance_factor:
                     
