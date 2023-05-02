@@ -10,6 +10,7 @@ bl_info = {
     "category": "Add Mesh",
 }
 
+
 import bpy
 import bmesh
 from bpy.props import IntProperty, FloatProperty, FloatVectorProperty
@@ -17,17 +18,66 @@ from bpy.props import IntProperty, FloatProperty, FloatVectorProperty
 # for split logic.
 import random
 import math
-from mathutils import Vector, Quaternion, Matrix
+from mathutils import Vector, Quaternion, Matrix, noise
 
+ 
+# General Functions:
+def displace_point_with_noise(point, intensity, scale):
+    # Convert the point's position to a coordinate in noise space
+    noise_coord = point * scale
+
+    # Sample the 3D Perlin noise using the noise_coord
+    noise_value_x = noise.noise(noise_coord)
+    noise_value_y = noise.noise(noise_coord + Vector((100,100,100)))
+    noise_value_z = noise.noise(noise_coord + Vector((100,200,200)))
+
+    # Create a displacement vector with the noise_value multiplied by intensity
+    displacement = Vector((noise_value_x, noise_value_y, noise_value_z)) * intensity
+
+    # Add the displacement vector to the original point's position
+    displaced_point = point + displacement
+
+    return displaced_point
+
+def combine_lerp(value_bottom, value_top, parameter):
+    # Expecting bottom to be 1 and top 0
+    return value_bottom * parameter + value_top * (1 - parameter)
+        
+def cosine_sigmoid(x, min, max):
+    if x < min: 
+        return 0
+    if x > max: 
+        return 1
+    size = max-min
+    return (1 - math.cos((x - min) * math.pi / size)) / 2
+
+def softplus(x, factor):
+    return math.log(1 + math.exp(x * factor)) / factor
+
+def uniform_random_direction():
+    theta = random.uniform(0, 2 * math.pi)
+    phi = random.uniform(0, math.pi)
+    
+    x = math.sin(phi) * math.cos(theta)
+    y = math.sin(phi) * math.sin(theta)
+    z = math.cos(phi)
+    
+    return Vector((x, y, z)).normalized()
+
+# TODOS:
+# Add general presets
+# Split sections, each with a preset
+# Add 3D noise 
 
 class Section:
-    def __init__(self, points, depth, length, weight, open_end=True, parent=None):
+    def __init__(self, points, depth, length, weight, open_end=True, parent=None, parent_id=None):
         self.points = points
         self.open_end = open_end
         self.depth = depth
         self.length = length
         self.weight = weight
         self.parent = parent
+        self.parent_id = parent_id
         
 def update_tree(self, context):
     bpy.ops.growtree.create_tree()
@@ -47,7 +97,7 @@ class GROWTREE_PG_tree_parameters(bpy.types.PropertyGroup):
     light_source: bpy.props.FloatVectorProperty(name="Light Source", default=(0, 0, 1000), update=update_tree)
     light_searching_top: bpy.props.FloatProperty(name="Light Searching Top", default=0.5, min=0, max=2, update=update_tree)
     light_searching_bottom: bpy.props.FloatProperty(name="Light Searching Bottom", default=0.5, min=0, max=2, update=update_tree)
-    light_searching_edges: bpy.props.FloatProperty(name="Light Searching Fringes", default=3, min=0, max=10, update=update_tree)
+    light_searching_fringes: bpy.props.FloatProperty(name="Light Searching Fringes", default=3, min=0, max=10, update=update_tree)
     ground_avoiding: bpy.props.FloatProperty(name="Ground Avoiding", default=0.5, min=0, max=5, update=update_tree)
     trunk_gravity: bpy.props.FloatProperty(name="Trunk Gravity", default=0.5, min=0, max=10, update=update_tree)
     split_ratio_bottom: bpy.props.FloatProperty(name="Branch Split Ratio Bottom", default=0.4, min=0, max=0.5, update=update_tree)
@@ -59,7 +109,11 @@ class GROWTREE_PG_tree_parameters(bpy.types.PropertyGroup):
     generate_mesh: bpy.props.BoolProperty(name="Generate Mesh", default=False, update=update_tree)
     branch_resolution: bpy.props.IntProperty(name="Branch Resolution", default=8, min=3, max=32, update=update_tree)
     minimum_thickness: bpy.props.FloatProperty(name="Min Thickness", default=0.05, min=0.01, max=0.5, update=update_tree)
-    
+    noise_scale_bottom: bpy.props.FloatProperty(name="Noise Scale Bottom", default=1, min=0.01, max=5, update=update_tree)
+    noise_scale_top: bpy.props.FloatProperty(name="Noise Scale Top", default=0.2, min=0.01, max=5, update=update_tree)
+    noise_intensity_bottom: bpy.props.FloatProperty(name="Noise Intensity Bottom", default=1, min=0.01, max=5, update=update_tree)
+    noise_intensity_top: bpy.props.FloatProperty(name="Noise Intensity Top", default=0.2, min=0.01, max=5, update=update_tree)
+
 class GROWTREE_OT_create_tree(bpy.types.Operator):
     bl_idname = "growtree.create_tree"
     bl_label = "Create Tree"
@@ -100,26 +154,11 @@ class GROWTREE_OT_create_tree(bpy.types.Operator):
     def create_tree_mesh(self, tree_parameters):
         
         random.seed(tree_parameters.seed)
-    
-        def combine_lerp(value_bottom, value_top, parameter):
-            # Expecting bottom to be 1 and top 0
-            return value_bottom * parameter + value_top * (1 - parameter)
-        
-        def cosine_sigmoid(x, min, max):
-            if x < min: 
-                return 0
-            if x > max: 
-                return 1
-            size = max-min
-            return (1 - math.cos((x - min) * math.pi / size)) / 2
-        
-        def softplus(x, factor):
-            return math.log(1 + math.exp(x * factor)) / factor
         
         def get_light_weight(section, iteration_number, tree_parameters):
             thickness = get_thickness_parameter_base(tree_parameters, section)
             light_searching = combine_lerp(tree_parameters.light_searching_bottom, tree_parameters.light_searching_top, thickness) + \
-                tree_parameters.light_searching_edges * (max(0, thickness-0.97) * 5)
+                tree_parameters.light_searching_fringes * (max(0, (1 -thickness)-0.95) * 5)
             return light_searching
         
         def get_growth_direction(previous_point1, previous_point2, section, iteration_number, tree_parameters):
@@ -182,7 +221,7 @@ class GROWTREE_OT_create_tree(bpy.types.Operator):
         def check_splits(sections, tree_parameters, iteration_number):
             
             new_sections = []
-            for section in sections:
+            for counter, section in enumerate(sections):
                 thickness_param = get_thickness_parameter(tree_parameters, section)
                 min_length = combine_lerp(tree_parameters.min_length_bottom, tree_parameters.min_length_top, thickness_param)
                 split_chance = combine_lerp(tree_parameters.split_chance_bottom, tree_parameters.split_chance_top, thickness_param)
@@ -218,14 +257,16 @@ class GROWTREE_OT_create_tree(bpy.types.Operator):
                         length= 1, \
                         weight=section.weight * (1 - split_ratio), \
                         open_end=True, \
-                        parent=section)
+                        parent=section,
+                        parent_id=counter)
                     new_section2 = Section( \
                         points=section.points[-1:], \
                         depth=section.depth + 1, \
                         length= 1, \
                         weight=section.weight * (split_ratio), \
                         open_end=True, \
-                        parent=section)
+                        parent=section,
+                        parent_id=counter)
 
                     # Rotating the branches along a random direction. The split is handled
                     # through the split_ratio parameter before. 
@@ -280,16 +321,31 @@ class GROWTREE_OT_create_tree(bpy.types.Operator):
             # Interpolate between the original value and the sigmoid
             return combine_lerp(softplus(value, 6), value, parameter)  
         
-        def uniform_random_direction():
-            theta = random.uniform(0, 2 * math.pi)
-            phi = random.uniform(0, math.pi)
+        def apply_noise(sections, tree_parameters): 
+            new_sections = []
+            for section in sections:
+
+                # Applying the noise factor now. 
+                thickness = get_thickness_parameter(tree_parameters, section)
+                noise_scale=combine_lerp(tree_parameters.noise_scale_bottom, tree_parameters.noise_scale_top, thickness)
+                noise_intensity=combine_lerp(tree_parameters.noise_intensity_bottom, tree_parameters.noise_intensity_top, thickness)
+                new_points = []
+                for point in section.points: 
+                    new_points.append(displace_point_with_noise(point, noise_intensity, noise_scale))
+                    #temp_section.points.append(point)
+                section.points = new_points
+                
+                # Translating the section to the position of the parent last point
+                if section.parent is not None:
+                    parent_last_point = sections[section.parent_id].points[-1]
+                    translation_vector = section.points[0] - parent_last_point
+                    new_points = []
+                    for point in section.points:
+                        new_points.append(point - translation_vector)
+                    section.points = new_points
+
+            return sections
             
-            x = math.sin(phi) * math.cos(theta)
-            y = math.sin(phi) * math.sin(theta)
-            z = math.cos(phi)
-            
-            return Vector((x, y, z)).normalized()
-        
         def create_circle_verts(position, direction, radius, resolution):
             circle_verts = []
 
@@ -400,10 +456,14 @@ class GROWTREE_OT_create_tree(bpy.types.Operator):
             length=1)
         sections = [root_section]
 
+        # Growing iterations!
         for iteration_number in range(tree_parameters.iterations):
             grow_step(sections, tree_parameters, iteration_number)
             new_sections = check_splits(sections, tree_parameters, iteration_number)
             sections.extend(new_sections)
+
+        # Applying Noise 
+        sections = apply_noise(sections, tree_parameters)
 
         # Creating main mesh
         mesh = bpy.data.meshes.new("Tree")
