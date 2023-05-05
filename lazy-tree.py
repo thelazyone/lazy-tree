@@ -87,6 +87,7 @@ class GROWTREE_PG_tree_parameters(bpy.types.PropertyGroup):
     seed: bpy.props.IntProperty(name="Seed", default=0, update=update_tree)
     iterations: bpy.props.IntProperty(name="Iterations", default=20, min=0, max=1024, update=update_tree)
     radius: bpy.props.FloatProperty(name="Trunk Base Radius", default=0.5, min=0.1, max=10, update=update_tree)
+    trunk_branches_division: bpy.props.FloatVectorProperty(name="Trunk Branches divisions", default=(0.2, 0.8), min = 0, max = 1, size=2, update=update_tree)
 
     # Branching
     split_chance_2D: bpy.props.FloatVectorProperty(name="Split Chance %", default=(0.5, 1), min = 0, max = 10, size=2, update=update_tree)
@@ -175,7 +176,6 @@ class GROWTREE_OT_create_tree(bpy.types.Operator):
             final_direction = (direction + random_direction * noise_factor +\
                  light_direction * get_light_weight(section, iteration_number, tree_parameters)* 0.01).normalized()
             return final_direction
-        
 
         def get_thickness_parameter_base(tree_parameters, section):
             # The parameter is close to 1 when the element is thicker.
@@ -185,6 +185,9 @@ class GROWTREE_OT_create_tree(bpy.types.Operator):
 
         def get_thickness_parameter(tree_parameters, section):
             parameter = get_thickness_parameter_base(tree_parameters, section)
+            
+            # Applying a cosine sigmoid to the parameter.
+            parameter = 1 - cosine_sigmoid(1 - parameter, tree_parameters.trunk_branches_division[0], tree_parameters.trunk_branches_division[1])
 
             # Adding another factor linked with the tree height. 
             max_height = 30
@@ -389,7 +392,8 @@ class GROWTREE_OT_create_tree(bpy.types.Operator):
                     direction = (current_point - prev_point).normalized()
 
                 # Calculate the lerp factor based on the current index in the section points
-                lerp_limit = math.sqrt(radius / parent_radius)
+                # With a minimum lerping value of 0.05 to prevent extreme cases.
+                lerp_limit = max(0.05, math.sqrt(radius / parent_radius))
                 lerp_factor = cosine_sigmoid(i / (len(section.points) - 1), 0.0, lerp_limit)
                 
                 # If the section has a parent, modify the direction and radius
