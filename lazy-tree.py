@@ -18,6 +18,8 @@ from bpy.props import IntProperty, FloatProperty, FloatVectorProperty
 # for split logic.
 import random
 import math
+
+# TODO add seed for noise!
 from mathutils import Vector, Quaternion, Matrix, noise
 
  
@@ -38,6 +40,11 @@ def displace_point_with_noise(point, intensity, scale):
     displaced_point = point + displacement
 
     return displaced_point
+
+def get_radius_noise(angle_rad, planar_scale, offset):
+    # Translate 
+    noise_coord = Vector((math.sin(angle_rad), math.cos(angle_rad), offset));
+    return noise.noise(noise_coord * planar_scale)
 
 def combine_lerp(value_bottom, value_top, parameter):
     # Expecting bottom to be 1 and top 0
@@ -68,11 +75,11 @@ def uniform_random_direction():
     return Vector((x, y, z)).normalized()
 
 class Section:
-    def __init__(self, points, depth, length, weight, open_end=True, parent=None, parent_id=None):
+    def __init__(self, points, depth, distance, weight, open_end=True, parent=None, parent_id=None):
         self.points = points
         self.open_end = open_end
         self.depth = depth
-        self.length = length
+        self.distance = distance
         self.weight = weight
         self.parent = parent
         self.parent_id = parent_id
@@ -114,6 +121,10 @@ class GROWTREE_PG_tree_parameters(bpy.types.PropertyGroup):
     branch_resolution: bpy.props.IntProperty(name="Branch Resolution", default=8, min=3, max=32, update=update_tree)
     minimum_thickness: bpy.props.FloatProperty(name="Min Thickness", default=0.05, min=0.01, max=0.5, update=update_tree)
     chunkyness: bpy.props.FloatProperty(name="Chunkyness", default=0.5, min=0.1, max=2, update=update_tree)
+    surface_noise_planar: bpy.props.FloatVectorProperty(name="Surface Planar Noise Scale", default=(0.4, 0.2), min=0.01, max=5, size=2, update=update_tree)
+    surface_noise_vertical: bpy.props.FloatVectorProperty(name="Surface Vertical Noise Scale", default=(0.4, 0.2), min=0.01, max=5, size=2, update=update_tree)
+    surface_noise_intensity: bpy.props.FloatVectorProperty(name="Surface Noise Intensity", default=(0.4, 0.2), min=0.01, max=5, size=2, update=update_tree)
+
 
 class GROWTREE_OT_create_tree(bpy.types.Operator):
     bl_idname = "growtree.create_tree"
@@ -212,7 +223,6 @@ class GROWTREE_OT_create_tree(bpy.types.Operator):
                     
                     thickness_param = get_thickness_parameter(tree_parameters, section)
                     segment_length = combine_lerp_2D(tree_parameters.segment_length_2D, thickness_param)
-                    section.length = section.length + 1
                     last_point = section.points[-1]
                     quasi_last_point = section.points[-2]
                     new_point = last_point + get_growth_direction(\
@@ -223,6 +233,7 @@ class GROWTREE_OT_create_tree(bpy.types.Operator):
                         tree_parameters) *\
                         segment_length
                     section.points.append(new_point)
+                    section.distance = section.distance + 1
 
         def check_splits(sections, tree_parameters, iteration_number):
             
@@ -233,10 +244,13 @@ class GROWTREE_OT_create_tree(bpy.types.Operator):
                 split_chance = combine_lerp_2D(tree_parameters.split_chance_2D, thickness_param)
                 segment_length = combine_lerp_2D(tree_parameters.segment_length_2D, thickness_param)
                 split_chance = split_chance * segment_length
-                chance_factor = (section.length * segment_length / min_length)
+                section_length = section.distance
+                if section.parent is not None:
+                    section_length = section_length - section.parent.distance
+                chance_factor = (section_length * segment_length / min_length)
                 if section.open_end and random.random() < split_chance * chance_factor:
                     
-                    if (section.length < min_length):
+                    if (section_length < min_length):
                         continue
 
                     # A split is happening: the current section is not open-ended anymore.
@@ -259,7 +273,7 @@ class GROWTREE_OT_create_tree(bpy.types.Operator):
                     new_section1 = Section( \
                         points=section.points[-1:], \
                         depth=section.depth + 1, \
-                        length= 1, \
+                        distance = section.distance + 1, \
                         weight=section.weight * (1 - split_ratio), \
                         open_end=True, \
                         parent=section,
@@ -267,7 +281,7 @@ class GROWTREE_OT_create_tree(bpy.types.Operator):
                     new_section2 = Section( \
                         points=section.points[-1:], \
                         depth=section.depth + 1, \
-                        length= 1, \
+                        distance = section.distance + 1, \
                         weight=section.weight * (split_ratio), \
                         open_end=True, \
                         parent=section,
@@ -284,9 +298,12 @@ class GROWTREE_OT_create_tree(bpy.types.Operator):
                         random.uniform(-1, 1) * tree_parameters.split_angle_randomness
                     angle1 = -split_angle * split_ratio * (new_section1.weight / section.weight * 2)
                     angle2 = split_angle * (1 - split_ratio) * (new_section1.weight / section.weight * 2)
+                    split_rotation = math.radians(random.uniform(0, 2 * math.pi))
 
                     direction1.rotate(Quaternion(direction1.cross(random_direction).normalized(), math.radians(angle1)))
+                    direction1.rotate(Quaternion(initial_direction.normalized(), split_rotation))
                     direction2.rotate(Quaternion(direction2.cross(random_direction).normalized(), math.radians(angle2)))
+                    direction2.rotate(Quaternion(initial_direction.normalized(), split_rotation))
 
                     # Now calculating the effects on the new direction, then adding it to the new sections.
                     new_section1.points.extend([new_section1.points[-1] + \
@@ -353,30 +370,50 @@ class GROWTREE_OT_create_tree(bpy.types.Operator):
 
             return sections
             
-        def create_circle_verts(position, direction, radius, resolution):
+        def create_circle_verts(position, direction, radius, point_distance, thickness_parameter, tree_parameters):
             circle_verts = []
 
-            rotation = direction.to_track_quat('Z', 'Y').to_matrix().to_4x4()
+            # Compute an orthogonal basis for the circle's plane
+            up = Vector((1, 0, 0))
+            if abs(direction.dot(up)) > 0.99:
+                up = Vector((0, 0, 1))
+            side = direction.cross(up).normalized()
+            up = side.cross(direction).normalized()
 
-            for i in range(resolution):
-                angle = (2 * math.pi / resolution) * i
-                x = position.x + radius * math.cos(angle)
-                y = position.y + radius * math.sin(angle)
-                z = position.z
+            # Determine the initial angle based on the direction
+            initial_angle = math.atan2(direction.y, direction.x)
+                        
+            thickness = thickness_parameter
+            surface_noise_planar = combine_lerp_2D(tree_parameters.surface_noise_planar, thickness)
+            surface_noise_vertical = combine_lerp_2D(tree_parameters.surface_noise_vertical, thickness)
+            #surface_noise_vertical = tree_parameters.surface_noise_vertical[0]
+            surface_noise_intensity = combine_lerp_2D(tree_parameters.surface_noise_intensity, thickness)
+            section_step_length = combine_lerp_2D(tree_parameters.segment_length_2D, thickness)
 
-                vertex = Vector((x, y, z))
-                vertex = rotation @ (vertex - position) + position
+            for i in range(tree_parameters.branch_resolution):
+                angle = (2 * math.pi / tree_parameters.branch_resolution) * i + initial_angle
+                radius_noise = get_radius_noise(angle, surface_noise_planar, \
+                                                surface_noise_vertical * point_distance)
+                
+                vertex = position + combine_lerp(radius, radius*radius_noise, 1-surface_noise_intensity) *\
+                      (math.cos(angle) * side + math.sin(angle) * up)
                 circle_verts.append(vertex)
 
             return circle_verts
 
         def create_section_mesh(section, tree_parameters):
+            thickness = get_thickness_parameter_base(tree_parameters, section)
             if section.parent is None:
                 radius = tree_parameters.radius
                 parent_radius = radius
+                parent_distance = 0
+                parent_thickness = thickness
             else:
                 radius = get_radius_from_weight(tree_parameters, section)
                 parent_radius =  get_radius_from_weight(tree_parameters, section.parent)
+                parent_distance = section.parent.distance
+                parent_thickness = get_thickness_parameter_base(tree_parameters, section.parent)
+
             mesh = bpy.data.meshes.new("Branch")
             bm = bmesh.new()
 
@@ -415,8 +452,12 @@ class GROWTREE_OT_create_tree(bpy.types.Operator):
                 else:
                     lerped_position = current_point
 
+                # For the noise we need a smarter way to use the thickness through lerping
+                lerped_thickness = combine_lerp(thickness, parent_thickness, lerp_factor)
+                lerped_thickness = math.sqrt(lerped_thickness)
+                point_distance = parent_distance + i
                 current_circle_verts = create_circle_verts(
-                    lerped_position, direction, lerped_radius, tree_parameters.branch_resolution
+                    lerped_position, direction, lerped_radius, point_distance, lerped_thickness, tree_parameters
                 )
                 
                 # Creating this loop's vertices and edges:
@@ -461,7 +502,7 @@ class GROWTREE_OT_create_tree(bpy.types.Operator):
             points=[Vector((0, 0, 0)),Vector((0, 0, 0.1))], \
             weight=tree_parameters.iterations, \
             depth=1,\
-            length=1)
+            distance=1)
         sections = [root_section]
 
         # Growing iterations!
