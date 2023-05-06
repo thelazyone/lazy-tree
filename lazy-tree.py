@@ -75,7 +75,7 @@ def uniform_random_direction():
     return Vector((x, y, z)).normalized()
 
 class Section:
-    def __init__(self, points, depth, distance, weight, open_end=True, parent=None, parent_id=None):
+    def __init__(self, points, depth, distance, weight, open_end=True, parent=None, parent_id=None, is_root=False):
         self.points = points
         self.open_end = open_end
         self.depth = depth
@@ -83,7 +83,8 @@ class Section:
         self.weight = weight
         self.parent = parent
         self.parent_id = parent_id
-        
+        self.is_root = is_root
+
 def update_tree(self, context):
     bpy.ops.growtree.create_tree()
 
@@ -107,10 +108,13 @@ class GROWTREE_PG_tree_parameters(bpy.types.PropertyGroup):
     min_length_2D: bpy.props.FloatVectorProperty(name="Average Lenght", default=(10, 5), min=1, max=100, size=2, update=update_tree)
 
     # Roots
-    roots_length: bpy.props.FloatProperty(name="Roots Length", default=1, min=0, max=120, update=update_tree)
-    roots_amount: bpy.props.FloatProperty(name="Roots Amount", default=6, min=0, max=120, update=update_tree)
-    roots_spread: bpy.props.FloatProperty(name="Roots Spread", default=6, min=0, max=120, update=update_tree)
-    roots_branch_length: bpy.props.FloatProperty(name="Roots Branch Lenght", default=6, min=0, max=120, update=update_tree)
+    roots_starting_angle: bpy.props.FloatProperty(name="Roots Starting Angle", default=45, min=0, max=120, update=update_tree)
+    roots_starting_position: bpy.props.FloatProperty(name="Roots Starting Position", default=2, min=0, max=120, update=update_tree)
+    roots_amount: bpy.props.IntProperty(name="Roots Amount", default=6, min=0, max=36, update=update_tree)
+    roots_spread: bpy.props.FloatProperty(name="Roots Spread", default=0.95, min=0, max=1, update=update_tree)
+    roots_propagation: bpy.props.FloatProperty(name="Roots Propagation", default=5, min=0.1, max=20, update=update_tree)
+    roots_noise: bpy.props.FloatProperty(name="Roots Noise", default=.5, min=0, max=1, update=update_tree)
+    root_segment_length:bpy.props.FloatProperty(name="Roots Segment Lenght", default=.1, min=0, max=2, update=update_tree)
 
     # Deformation
     light_source: bpy.props.FloatVectorProperty(name="Light Source", default=(0, 0, 100), update=update_tree)
@@ -193,6 +197,23 @@ class GROWTREE_OT_create_tree(bpy.types.Operator):
             final_direction = (direction + random_direction * noise_factor +\
                  light_direction * get_light_weight(section, iteration_number, tree_parameters)* 0.01).normalized()
             return final_direction
+        
+        def get_root_growth_direction(previous_point1, previous_point2, section, iteration_number, tree_parameters):
+            direction = (previous_point2 - previous_point1).normalized()
+            random_direction = Vector((random.uniform(-1, 1), random.uniform(-1, 1), random.uniform(-1, 1))).normalized()
+
+            # Noise factor is ideally higher than branhces.
+            noise_factor = tree_parameters.roots_noise
+            final_direction = (direction + random_direction * noise_factor).normalized()
+            
+            # Vertical directional factor depends on the closeness to zero.
+            final_direction.z = final_direction.z * tree_parameters.roots_spread - previous_point1.z * (1 - tree_parameters.roots_spread)
+
+            # Discouraging going towards origin:
+            xy_position = Vector((previous_point1.x, previous_point1.y, 0)) 
+            final_direction = final_direction + 0.05* xy_position.normalized() * final_direction.dot(xy_position)
+
+            return final_direction.normalized()
 
         def get_thickness_parameter_base(tree_parameters, section):
             # The parameter is close to 1 when the element is thicker.
@@ -232,6 +253,30 @@ class GROWTREE_OT_create_tree(bpy.types.Operator):
                     last_point = section.points[-1]
                     quasi_last_point = section.points[-2]
                     new_point = last_point + get_growth_direction(\
+                        quasi_last_point, \
+                        last_point, \
+                        section, \
+                        iteration_number, \
+                        tree_parameters) *\
+                        segment_length
+                    section.points.append(new_point)
+                    section.distance = section.distance + 1
+
+        def grow_root(root_sections, tree_parameters, iteration_number):
+            for section in root_sections:
+                if section.open_end:  
+                    
+                    # Checking for thickness
+                    radius = get_radius_from_weight(tree_parameters, section)
+
+                    if radius < tree_parameters.minimum_thickness / 2:
+                        section.open_end = False
+                        continue
+                    
+                    segment_length = tree_parameters.root_segment_length
+                    last_point = section.points[-1]
+                    quasi_last_point = section.points[-2]
+                    new_point = last_point + get_root_growth_direction(\
                         quasi_last_point, \
                         last_point, \
                         section, \
@@ -283,7 +328,8 @@ class GROWTREE_OT_create_tree(bpy.types.Operator):
                         weight=section.weight * (1 - split_ratio), \
                         open_end=True, \
                         parent=section,
-                        parent_id=counter)
+                        parent_id=counter,
+                        is_root=section.is_root)
                     new_section2 = Section( \
                         points=section.points[-1:], \
                         depth=section.depth + 1, \
@@ -291,7 +337,8 @@ class GROWTREE_OT_create_tree(bpy.types.Operator):
                         weight=section.weight * (split_ratio), \
                         open_end=True, \
                         parent=section,
-                        parent_id=counter)
+                        parent_id=counter,
+                        is_root=section.is_root)
 
                     # Rotating the branches along a random direction. The split is handled
                     # through the split_ratio parameter before. 
@@ -410,7 +457,10 @@ class GROWTREE_OT_create_tree(bpy.types.Operator):
         def create_section_mesh(section, tree_parameters):
             thickness = get_thickness_parameter_base(tree_parameters, section)
             if section.parent is None:
-                radius = tree_parameters.radius
+                if not section.is_root:
+                    radius = tree_parameters.radius
+                else:
+                    radius = get_radius_from_weight(tree_parameters, section)
                 parent_radius = radius
                 parent_distance = 0
                 parent_thickness = thickness
@@ -504,21 +554,64 @@ class GROWTREE_OT_create_tree(bpy.types.Operator):
         mesh = bpy.data.meshes.new("Tree")
         bm = bmesh.new()
 
-        root_section = Section( \
+        # Creating the tree body
+        trunk_section = Section( \
             points=[Vector((0, 0, 0)),Vector((0, 0, 0.1))], \
             weight=tree_parameters.iterations, \
             depth=1,\
             distance=1)
-        sections = [root_section]
+        sections = [trunk_section]
 
         # Growing iterations!
         for iteration_number in range(tree_parameters.iterations):
             grow_step(sections, tree_parameters, iteration_number)
             new_sections = check_splits(sections, tree_parameters, iteration_number)
-            sections.extend(new_sections)
+
+            # Extending only if a pair of new section exists.
+            sections.extend(new_sections)                
 
         # Applying Noise 
         sections = apply_noise(sections, tree_parameters)
+
+        # Creating the roots
+        root_sections = []
+        for i in range(tree_parameters.roots_amount):
+            angle_around_z = random.uniform(0, 2 * math.pi)
+            angle_from_negative_z = random.uniform(-math.pi / 2, -math.pi / 2 + math.radians(tree_parameters.roots_starting_angle))
+            starting_height = random.uniform(0, tree_parameters.roots_starting_position)
+            
+            direction = Vector((math.cos(angle_around_z) * math.cos(angle_from_negative_z),
+                                math.sin(angle_around_z) * math.cos(angle_from_negative_z),
+                                math.sin(angle_from_negative_z))).normalized()
+            direction = direction *  tree_parameters.segment_length_2D[0]
+
+            root_section = Section(
+                points=[Vector((0, 0, starting_height)), Vector((0, 0, starting_height)) + direction],
+                weight=tree_parameters.iterations / 2,
+                depth=1,
+                distance=1,
+                is_root=True
+            )
+
+            root_sections.append(root_section)
+
+        for iteration_number in range(tree_parameters.iterations):
+            grow_root(root_sections, tree_parameters, iteration_number)
+
+        # Lowering the roots till they get underground.
+        for root_section in root_sections:
+            final_section_length = len(root_section.points)
+            for (point_idx, point) in enumerate(root_section.points):
+                distance_xy = math.sqrt(point.x*point.x + point.y*point.y)
+                point.z = point.z - distance_xy * 1 / tree_parameters.roots_propagation
+
+                if point.z < -tree_parameters.radius:
+                    final_section_length=point_idx
+                    break
+            root_section.points = root_section.points[0: final_section_length]
+
+        # Extending sections with the root sections:
+        sections.extend(root_sections)
 
         # Creating main mesh
         mesh = bpy.data.meshes.new("Tree")
