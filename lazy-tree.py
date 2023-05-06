@@ -106,6 +106,12 @@ class GROWTREE_PG_tree_parameters(bpy.types.PropertyGroup):
     tree_ground_factor: bpy.props.FloatProperty(name="Ground Trunk Factor", default=0.2, min=0, max=1, update=update_tree)
     min_length_2D: bpy.props.FloatVectorProperty(name="Average Lenght", default=(10, 5), min=1, max=100, size=2, update=update_tree)
 
+    # Roots
+    roots_length: bpy.props.FloatProperty(name="Roots Length", default=1, min=0, max=120, update=update_tree)
+    roots_amount: bpy.props.FloatProperty(name="Roots Amount", default=6, min=0, max=120, update=update_tree)
+    roots_spread: bpy.props.FloatProperty(name="Roots Spread", default=6, min=0, max=120, update=update_tree)
+    roots_branch_length: bpy.props.FloatProperty(name="Roots Branch Lenght", default=6, min=0, max=120, update=update_tree)
+
     # Deformation
     light_source: bpy.props.FloatVectorProperty(name="Light Source", default=(0, 0, 100), update=update_tree)
     light_searching_2D: bpy.props.FloatVectorProperty(name="Light Searching", default=(0.5, 0.5), min=0, max=2, size=2, update=update_tree)
@@ -118,7 +124,7 @@ class GROWTREE_PG_tree_parameters(bpy.types.PropertyGroup):
 
     # Meshing
     generate_mesh: bpy.props.BoolProperty(name="Generate Mesh", default=False, update=update_tree)
-    branch_resolution: bpy.props.IntProperty(name="Branch Resolution", default=8, min=3, max=32, update=update_tree)
+    branch_resolution: bpy.props.IntProperty(name="Branch Resolution", default=8, min=3, max=64, update=update_tree)
     minimum_thickness: bpy.props.FloatProperty(name="Min Thickness", default=0.05, min=0.01, max=0.5, update=update_tree)
     chunkyness: bpy.props.FloatProperty(name="Chunkyness", default=0.5, min=0.1, max=2, update=update_tree)
     surface_noise_planar: bpy.props.FloatVectorProperty(name="Surface Planar Noise Scale", default=(0.4, 0.2), min=0.01, max=5, size=2, update=update_tree)
