@@ -8,7 +8,8 @@ Unlike most of the other (excellent) tree generators, LTG focuses on generating 
 The initial design of this generator aimed to a true bottom-up simulation, keeping all the design parameters as little emulative as possible, but currently the generation follows something in between: .ost of the rules are "local", there is no "tree shape" parameter and each branch is (almost) not aware of its position on the tree, but at the same time there are some global filters to keep the shapes printable.
 
 # Installation
-Install the lazy-tere.py files within the Blender add-ons interface. Tested with Blender 3.4
+As of the latest update the content of the plugin is not in a single .py file anymore. 
+Download all the .py files, zip them and load that zip in Blender.
 
 # Getting started
 Once the plugin is installed, you should find yourself a tab "Create" on the properties panel on the right.
