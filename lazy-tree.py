@@ -44,7 +44,7 @@ import tree_light_functions
 importlib.reload(tree_light_functions)
 import tree_armature_functions
 importlib.reload(tree_armature_functions)
-from tree_armature_functions import grow_step, check_splits, grow_root, apply_noise
+from tree_armature_functions import *
 import tree_mesh_functions
 importlib.reload(tree_mesh_functions)
 from tree_mesh_functions import create_section_mesh
@@ -152,49 +152,14 @@ class GROWTREE_OT_create_tree(bpy.types.Operator):
         # Applying Noise 
         sections = apply_noise(sections, tree_parameters)
 
-        # Start of the Roots section.
-        # TODO: The root section should be moved in a separate file!
         # Creating the roots: very similar to the branches, but not quite.
-        root_sections = []
-        for i in range(tree_parameters.roots_amount):
-            angle_around_z = random.uniform(0, 2 * math.pi)
-            angle_from_negative_z = random.uniform(-math.pi / 2, -math.pi / 2 + math.radians(tree_parameters.roots_starting_angle))
-            starting_height = random.uniform(0, tree_parameters.roots_starting_position)
-            
-            direction = Vector((math.cos(angle_around_z) * math.cos(angle_from_negative_z),
-                                math.sin(angle_around_z) * math.cos(angle_from_negative_z),
-                                math.sin(angle_from_negative_z))).normalized()
-            direction = direction *  tree_parameters.segment_length_2D[0]
-
-            root_section = Section(
-                points=[Vector((0, 0, starting_height)), Vector((0, 0, starting_height)) + direction],
-                weight=tree_parameters.iterations / 2,
-                depth=1,
-                distance=1,
-                is_root=True
-            )
-
-            root_sections.append(root_section)
-
+        root_sections = create_root_sections(tree_parameters)
         for iteration_number in range(tree_parameters.iterations):
             grow_root(root_sections, tree_parameters, iteration_number)
-
-        # Lowering the roots till they get underground.
-        for root_section in root_sections:
-            final_section_length = len(root_section.points)
-            for (point_idx, point) in enumerate(root_section.points):
-                distance_xy = math.sqrt(point.x*point.x + point.y*point.y)
-                point.z = point.z - distance_xy * 1 / tree_parameters.roots_propagation
-
-                if point.z < -tree_parameters.radius:
-                    final_section_length=point_idx
-                    break
-            root_section.points = root_section.points[0: final_section_length]
+        root_sections = apply_roots_sinking(root_sections, tree_parameters)
 
         # Extending sections with the root sections:
         sections.extend(root_sections)
-
-        # End of the roots section.
 
         # Creating main mesh
         mesh = bpy.data.meshes.new("Tree")

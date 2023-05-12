@@ -226,3 +226,39 @@ def apply_noise(sections, tree_parameters):
             section.points = new_points
 
     return sections
+
+def create_root_sections(tree_parameters):
+    root_sections = []
+    for i in range(tree_parameters.roots_amount):
+        angle_around_z = random.uniform(0, 2 * math.pi)
+        angle_from_negative_z = random.uniform(-math.pi / 2, -math.pi / 2 + math.radians(tree_parameters.roots_starting_angle))
+        starting_height = random.uniform(0, tree_parameters.roots_starting_position)
+        
+        direction = Vector((math.cos(angle_around_z) * math.cos(angle_from_negative_z),
+                            math.sin(angle_around_z) * math.cos(angle_from_negative_z),
+                            math.sin(angle_from_negative_z))).normalized()
+        direction = direction *  tree_parameters.segment_length_2D[0]
+
+        root_section = Section(
+            points=[Vector((0, 0, starting_height)), Vector((0, 0, starting_height)) + direction],
+            weight=tree_parameters.iterations / 2,
+            depth=1,
+            distance=1,
+            is_root=True
+        )
+
+        root_sections.append(root_section)
+    return root_sections
+
+def apply_roots_sinking(root_sections, tree_parameters):
+    for root_section in root_sections:
+        final_section_length = len(root_section.points)
+        for (point_idx, point) in enumerate(root_section.points):
+            distance_xy = math.sqrt(point.x*point.x + point.y*point.y)
+            point.z = point.z - distance_xy * 1 / tree_parameters.roots_propagation
+
+            if point.z < -tree_parameters.radius:
+                final_section_length=point_idx
+                break
+        root_section.points = root_section.points[0: final_section_length]
+    return root_sections
