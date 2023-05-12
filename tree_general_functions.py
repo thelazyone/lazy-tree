@@ -12,7 +12,7 @@ def get_thickness_parameter(tree_parameters, section):
     parameter = get_thickness_parameter_base(tree_parameters, section)
     
     # Applying a cosine sigmoid to the parameter.
-    parameter = 1 - cosine_sigmoid(1 - parameter, tree_parameters.trunk_branches_division[0], tree_parameters.trunk_branches_division[1])
+    parameter = 1 - cosine_sigmoid(1 - parameter, tree_parameters.trunk_branches_division_2D[0], tree_parameters.trunk_branches_division_2D[1])
 
     # Adding another factor linked with the tree height. 
     max_height = 30

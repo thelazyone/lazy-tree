@@ -21,10 +21,9 @@ def create_circle_verts(position, direction, radius, point_distance, thickness_p
     initial_angle = math.atan2(direction.y, direction.x)
                 
     thickness = thickness_parameter
-    surface_noise_planar = combine_lerp_2D(tree_parameters.surface_noise_planar, thickness)
-    surface_noise_vertical = combine_lerp_2D(tree_parameters.surface_noise_vertical, thickness)
-    #surface_noise_vertical = tree_parameters.surface_noise_vertical[0]
-    surface_noise_intensity = combine_lerp_2D(tree_parameters.surface_noise_intensity, thickness)
+    surface_noise_planar = combine_lerp_2D(tree_parameters.surface_noise_planar_2D, thickness)
+    surface_noise_vertical = combine_lerp_2D(tree_parameters.surface_noise_vertical_2D, thickness)
+    surface_noise_intensity = combine_lerp_2D(tree_parameters.surface_noise_intensity_2D, thickness)
     section_step_length = combine_lerp_2D(tree_parameters.segment_length_2D, thickness)
 
     for i in range(tree_parameters.branch_resolution):

@@ -12,9 +12,9 @@ def get_growth_direction(previous_point1, previous_point2, section, iteration_nu
     direction = (previous_point2 - previous_point1).normalized()
     random_direction = Vector((random.uniform(-1, 1), random.uniform(-1, 1), random.uniform(-1, 1))).normalized()
     light_direction = Vector((\
-        tree_parameters.light_source[0], \
-        tree_parameters.light_source[1], \
-        tree_parameters.light_source[2])).normalized()
+        tree_parameters.light_source_3D[0], \
+        tree_parameters.light_source_3D[1], \
+        tree_parameters.light_source_3D[2])).normalized()
 
     thickness = get_thickness_parameter_base(tree_parameters, section)
     noise_factor = combine_lerp_2D(tree_parameters.noise_2D, thickness) * 0.1
@@ -176,7 +176,9 @@ def check_splits(sections, tree_parameters, iteration_number):
 
 def get_branches_direction(direction, section, tree_parameters, iteration_number):
     # Combining the random direction with the light direction
-    light_direction = Vector((tree_parameters.light_source[0], tree_parameters.light_source[1], tree_parameters.light_source[2])).normalized()
+    light_direction = Vector((tree_parameters.light_source_3D[0], \
+                              tree_parameters.light_source_3D[1], \
+                                tree_parameters.light_source_3D[2])).normalized()
     
     # Gravity depends on how much the branch weight is.
     root_weight = tree_parameters.iterations

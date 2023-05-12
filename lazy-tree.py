@@ -21,7 +21,7 @@ import random
 import math
 
 # TODO add seed for noise, same of Random!
-from mathutils import Vector, Matrix
+from mathutils import Vector, Matrix 
 
 # This path is used only for the development workflow.
 # When loading this as an addon this path is irrelevant.
@@ -49,8 +49,10 @@ import tree_mesh_functions
 importlib.reload(tree_mesh_functions)
 from tree_mesh_functions import create_section_mesh
 
+
 def update_tree(self, context):
     bpy.ops.growtree.create_tree()
+
 
 class GROWTREE_PG_tree_parameters(bpy.types.PropertyGroup):
 
@@ -58,7 +60,7 @@ class GROWTREE_PG_tree_parameters(bpy.types.PropertyGroup):
     seed: bpy.props.IntProperty(name="Seed", default=0, update=update_tree)
     iterations: bpy.props.IntProperty(name="Iterations", default=20, min=0, max=1024, update=update_tree)
     radius: bpy.props.FloatProperty(name="Trunk Base Radius", default=0.5, min=0.1, max=10, update=update_tree)
-    trunk_branches_division: bpy.props.FloatVectorProperty(name="Trunk Branches divisions", default=(0.2, 0.8), min = 0, max = 1, size=2, update=update_tree)
+    trunk_branches_division_2D: bpy.props.FloatVectorProperty(name="Trunk Branches divisions", default=(0.2, 0.8), min = 0, max = 1, size=2, update=update_tree)
 
     # Branching
     split_chance_2D: bpy.props.FloatVectorProperty(name="Split Chance %", default=(0.5, 1), min = 0, max = 10, size=2, update=update_tree)
@@ -80,7 +82,7 @@ class GROWTREE_PG_tree_parameters(bpy.types.PropertyGroup):
     root_segment_length:bpy.props.FloatProperty(name="Roots Segment Lenght", default=.1, min=0, max=2, update=update_tree)
 
     # Deformation
-    light_source: bpy.props.FloatVectorProperty(name="Light Source", default=(0, 0, 100), update=update_tree)
+    light_source_3D: bpy.props.FloatVectorProperty(name="Light Source", default=(0, 0, 100), update=update_tree)
     light_searching_2D: bpy.props.FloatVectorProperty(name="Light Searching", default=(0.5, 0.5), min=0, max=2, size=2, update=update_tree)
     light_searching_fringes: bpy.props.FloatProperty(name="Light Searching Fringes", default=3, min=0, max=10, update=update_tree)
     ground_avoiding: bpy.props.FloatProperty(name="Ground Avoiding", default=0.5, min=0, max=5, update=update_tree)
@@ -94,9 +96,10 @@ class GROWTREE_PG_tree_parameters(bpy.types.PropertyGroup):
     branch_resolution: bpy.props.IntProperty(name="Branch Resolution", default=8, min=3, max=64, update=update_tree)
     minimum_thickness: bpy.props.FloatProperty(name="Min Thickness", default=0.05, min=0.01, max=0.5, update=update_tree)
     chunkyness: bpy.props.FloatProperty(name="Chunkyness", default=0.5, min=0.1, max=2, update=update_tree)
-    surface_noise_planar: bpy.props.FloatVectorProperty(name="Surface Planar Noise Scale", default=(0.4, 0.2), min=0.01, max=5, size=2, update=update_tree)
-    surface_noise_vertical: bpy.props.FloatVectorProperty(name="Surface Vertical Noise Scale", default=(0.4, 0.2), min=0.01, max=5, size=2, update=update_tree)
-    surface_noise_intensity: bpy.props.FloatVectorProperty(name="Surface Noise Intensity", default=(0.4, 0.2), min=0.01, max=5, size=2, update=update_tree)
+    surface_noise_planar_2D: bpy.props.FloatVectorProperty(name="Surface Planar Noise Scale", default=(0.4, 0.2), min=0.01, max=5, size=2, update=update_tree)
+    surface_noise_vertical_2D: bpy.props.FloatVectorProperty(name="Surface Vertical Noise Scale", default=(0.4, 0.2), min=0.01, max=5, size=2, update=update_tree)
+    surface_noise_intensity_2D: bpy.props.FloatVectorProperty(name="Surface Noise Intensity", default=(0.4, 0.2), min=0.01, max=5, size=2, update=update_tree)
+
 
 class GROWTREE_OT_create_tree(bpy.types.Operator):
     bl_idname = "growtree.create_tree"
@@ -123,7 +126,6 @@ class GROWTREE_OT_create_tree(bpy.types.Operator):
         context.collection.objects.link(obj)
 
         return {'FINISHED'}
-
 
     def create_tree_mesh(self, tree_parameters):
 
@@ -206,8 +208,8 @@ class GROWTREE_OT_create_tree(bpy.types.Operator):
         bm.to_mesh(mesh)  # Keep this line
         bm.free()  # Keep this line
 
-
         return mesh
+
 
 # Blender GUI
 class GROWTREE_PT_create_tree_panel(bpy.types.Panel):
@@ -217,14 +219,59 @@ class GROWTREE_PT_create_tree_panel(bpy.types.Panel):
     bl_region_type = 'UI'
     bl_category = 'Create'
 
+    def draw_prop(self, box, tree_parameters, prop_name):
+        if '_2D' in prop_name:  # if the property is a 2D vector
+            row = box.row()
+            row.prop(tree_parameters, prop_name)
+        elif '_3D' in prop_name:  # if the property is a 2D vector
+            row = box.row()
+            row.prop(tree_parameters, prop_name)
+        else:
+            box.prop(tree_parameters, prop_name)
+
     def draw(self, context):
         layout = self.layout
         tree_parameters = context.scene.tree_parameters
 
-        for prop_name in GROWTREE_PG_tree_parameters.__annotations__.keys():
-            layout.prop(tree_parameters, prop_name)
+        box = layout.box()
+        box.label(text="General Properties")
+        props = ["seed", "iterations", "radius", "trunk_branches_division_2D"]
+        for prop_name in props:
+            self.draw_prop(box, tree_parameters, prop_name)
+
+        box = layout.box()
+        box.label(text="Branching")
+        props = ["split_chance_2D", "split_angle", "split_angle_randomness", 
+                 "split_ratio_2D", "split_ratio_random", "segment_length_2D",
+                 "tree_ground_factor", "min_length_2D"]
+        for prop_name in props:
+            self.draw_prop(box, tree_parameters, prop_name)
+
+        box = layout.box()
+        box.label(text="Roots")
+        props = ["roots_starting_angle", "roots_starting_position", "roots_amount", 
+                 "roots_spread", "roots_propagation", "roots_noise", "root_segment_length"]
+        for prop_name in props:
+            self.draw_prop(box, tree_parameters, prop_name)
+
+        box = layout.box()
+        box.label(text="Deformation")
+        props = ["light_source_3D", "light_searching_2D", "light_searching_fringes", 
+                 "ground_avoiding", "trunk_gravity", "noise_2D", 
+                 "noise_scale_2D", "noise_intensity_2D"]
+        for prop_name in props:
+            self.draw_prop(box, tree_parameters, prop_name)
+
+        box = layout.box()
+        box.label(text="Meshing")
+        props = ["generate_mesh", "branch_resolution", "minimum_thickness", 
+                 "chunkyness", "surface_noise_planar_2D", "surface_noise_vertical_2D", 
+                 "surface_noise_intensity_2D"]
+        for prop_name in props:
+            self.draw_prop(box, tree_parameters, prop_name)
 
         layout.operator(GROWTREE_OT_create_tree.bl_idname)
+
 
 def menu_func(self, context):
     self.layout.operator(GROWTREE_OT_create_tree.bl_idname)
