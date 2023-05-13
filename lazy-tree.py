@@ -25,7 +25,7 @@ from mathutils import Vector, Matrix
 
 # This path is used only for the development workflow.
 # When loading this as an addon this path is irrelevant.
-current_script_dir = bpy.context.space_data.text.filepath
+current_script_dir = "C:\Projects\lazy-tree"
 if current_script_dir not in sys.path:
     sys.path.append(current_script_dir)
 
@@ -96,9 +96,9 @@ class GROWTREE_PG_tree_parameters(bpy.types.PropertyGroup):
     branch_resolution: bpy.props.IntProperty(name="Branch Resolution", default=8, min=3, max=64, update=update_tree)
     minimum_thickness: bpy.props.FloatProperty(name="Min Thickness", default=0.05, min=0.01, max=0.5, update=update_tree)
     chunkyness: bpy.props.FloatProperty(name="Chunkyness", default=0.5, min=0.1, max=2, update=update_tree)
-    surface_noise_planar_2D: bpy.props.FloatVectorProperty(name="Surface Planar Noise Scale", default=(0.4, 0.2), min=0.01, max=5, size=2, update=update_tree)
-    surface_noise_vertical_2D: bpy.props.FloatVectorProperty(name="Surface Vertical Noise Scale", default=(0.4, 0.2), min=0.01, max=5, size=2, update=update_tree)
-    surface_noise_intensity_2D: bpy.props.FloatVectorProperty(name="Surface Noise Intensity", default=(0.4, 0.2), min=0.01, max=5, size=2, update=update_tree)
+    surface_noise_planar_2D: bpy.props.FloatVectorProperty(name="Surface Planar Noise Scale", default=(2, 2), min=0.01, max=5, size=2, update=update_tree)
+    surface_noise_vertical_2D: bpy.props.FloatVectorProperty(name="Surface Vertical Noise Scale", default=(0.05, 0.05), min=0.01, max=5, size=2, update=update_tree)
+    surface_noise_intensity_2D: bpy.props.FloatVectorProperty(name="Surface Noise Intensity", default=(0.2, 0.1), min=0.01, max=5, size=2, update=update_tree)
 
 
 class GROWTREE_OT_create_tree(bpy.types.Operator):
