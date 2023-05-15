@@ -70,15 +70,15 @@ class GROWTREE_PG_tree_parameters(bpy.types.PropertyGroup):
     split_ratio_random: bpy.props.FloatProperty(name="Ratio Randomness", default=0.1, min=0, max=1,  update=update_tree)
     segment_length_2D: bpy.props.FloatVectorProperty(name="Segment Length", default=(0.1, 0.1), min=0, max=10, size=2, update=update_tree)
     tree_ground_factor: bpy.props.FloatProperty(name="Ground Trunk Factor", default=0.2, min=0, max=1, update=update_tree)
-    min_length_2D: bpy.props.FloatVectorProperty(name="Average Lenght", default=(10, 5), min=1, max=100, size=2, update=update_tree)
+    min_length_2D: bpy.props.FloatVectorProperty(name="Average Lenght", default=(10, 2), min=1, max=100, size=2, update=update_tree)
 
     # Roots
     roots_starting_angle: bpy.props.FloatProperty(name="Roots Starting Angle", default=45, min=0, max=120, update=update_tree)
     roots_starting_position: bpy.props.FloatProperty(name="Roots Starting Position", default=2, min=0, max=120, update=update_tree)
     roots_amount: bpy.props.IntProperty(name="Roots Amount", default=0, min=0, max=36, update=update_tree)
-    roots_spread: bpy.props.FloatProperty(name="Roots Spread", default=0.95, min=0, max=1, update=update_tree)
-    roots_propagation: bpy.props.FloatProperty(name="Roots Propagation", default=5, min=0.1, max=20, update=update_tree)
-    roots_noise: bpy.props.FloatProperty(name="Roots Noise", default=.5, min=0, max=1, update=update_tree)
+    roots_spread: bpy.props.FloatProperty(name="Roots Spread", default=0.7, min=0, max=1, update=update_tree)
+    roots_propagation: bpy.props.FloatProperty(name="Roots Propagation", default=2, min=0.1, max=20, update=update_tree)
+    roots_noise: bpy.props.FloatProperty(name="Roots Noise", default=0.1, min=0, max=1, update=update_tree)
     root_segment_length:bpy.props.FloatProperty(name="Roots Segment Lenght", default=.1, min=0, max=2, update=update_tree)
 
     # Deformation
