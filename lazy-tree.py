@@ -58,7 +58,7 @@ class GROWTREE_PG_tree_parameters(bpy.types.PropertyGroup):
 
     # General Properties
     seed: bpy.props.IntProperty(name="Seed", default=0, update=update_tree)
-    iterations: bpy.props.IntProperty(name="Iterations", default=20, min=0, max=1024, update=update_tree)
+    iterations: bpy.props.IntProperty(name="Iterations", default=256, min=0, max=1024, update=update_tree)
     radius: bpy.props.FloatProperty(name="Trunk Base Radius", default=0.5, min=0.1, max=10, update=update_tree)
     trunk_branches_division_2D: bpy.props.FloatVectorProperty(name="Trunk/Branch gradient", default=(0.2, 0.8), min = 0, max = 1, size=2, update=update_tree)
 
@@ -66,7 +66,7 @@ class GROWTREE_PG_tree_parameters(bpy.types.PropertyGroup):
     split_chance_2D: bpy.props.FloatVectorProperty(name="Chance %", default=(0.5, 1), min = 0, max = 10, size=2, update=update_tree)
     split_angle: bpy.props.FloatProperty(name="Angle (deg)", default=45, min=0, max=90, update=update_tree)
     split_angle_randomness: bpy.props.FloatProperty(name="Angle Randomness (deg)", default=10, min=0, max=90, update=update_tree)
-    split_ratio_2D: bpy.props.FloatVectorProperty(name="Split Ratio", default=(0.4, 0.1), min=0.1, max=0.5, size=2, update=update_tree)
+    split_ratio_2D: bpy.props.FloatVectorProperty(name="Split Ratio", default=(0.4, 0.4), min=0.1, max=0.5, size=2, update=update_tree)
     split_ratio_random: bpy.props.FloatProperty(name="Ratio Randomness", default=0.1, min=0, max=1,  update=update_tree)
     segment_length_2D: bpy.props.FloatVectorProperty(name="Segment Length", default=(0.1, 0.1), min=0, max=10, size=2, update=update_tree)
     tree_ground_factor: bpy.props.FloatProperty(name="Ground Trunk Factor", default=0.2, min=0, max=1, update=update_tree)
@@ -75,7 +75,7 @@ class GROWTREE_PG_tree_parameters(bpy.types.PropertyGroup):
     # Roots
     roots_starting_angle: bpy.props.FloatProperty(name="Roots Starting Angle", default=45, min=0, max=120, update=update_tree)
     roots_starting_position: bpy.props.FloatProperty(name="Roots Starting Position", default=2, min=0, max=120, update=update_tree)
-    roots_amount: bpy.props.IntProperty(name="Roots Amount", default=6, min=0, max=36, update=update_tree)
+    roots_amount: bpy.props.IntProperty(name="Roots Amount", default=0, min=0, max=36, update=update_tree)
     roots_spread: bpy.props.FloatProperty(name="Roots Spread", default=0.95, min=0, max=1, update=update_tree)
     roots_propagation: bpy.props.FloatProperty(name="Roots Propagation", default=5, min=0.1, max=20, update=update_tree)
     roots_noise: bpy.props.FloatProperty(name="Roots Noise", default=.5, min=0, max=1, update=update_tree)
@@ -87,18 +87,18 @@ class GROWTREE_PG_tree_parameters(bpy.types.PropertyGroup):
     light_searching_fringes: bpy.props.FloatProperty(name="Light Searching Fringes", default=3, min=0, max=10, update=update_tree)
     ground_avoiding: bpy.props.FloatProperty(name="Ground Avoiding", default=0.5, min=0, max=5, update=update_tree)
     trunk_gravity: bpy.props.FloatProperty(name="Trunk Gravity", default=0.2, min=0, max=1, update=update_tree)
-    noise_2D: bpy.props.FloatVectorProperty(name="Growth Noise", default=(0.5, 0.5), min=0, max=10, size=2, update=update_tree)
+    noise_2D: bpy.props.FloatVectorProperty(name="Growth Noise", default=(0.1, 0.5), min=0, max=10, size=2, update=update_tree)
     noise_scale_2D: bpy.props.FloatVectorProperty(name="Volumetric Noise Scale", default=(1, 0.2), min=0.01, max=5, size=2, update=update_tree)
-    noise_intensity_2D: bpy.props.FloatVectorProperty(name="Volumetric Noise Intensity", default=(1, 0.2), min=0.01, max=5, size=2, update=update_tree)
+    noise_intensity_2D: bpy.props.FloatVectorProperty(name="Volumetric Noise Intensity", default=(0.1, 0.2), min=0.01, max=5, size=2, update=update_tree)
 
     # Meshing
     generate_mesh: bpy.props.BoolProperty(name="Generate Mesh", default=False, update=update_tree)
-    branch_resolution: bpy.props.IntProperty(name="Branch Resolution", default=8, min=3, max=64, update=update_tree)
-    minimum_thickness: bpy.props.FloatProperty(name="Min Thickness", default=0.05, min=0.01, max=0.5, update=update_tree)
+    branch_resolution: bpy.props.IntProperty(name="Branch Resolution", default=24, min=3, max=64, update=update_tree)
+    minimum_thickness: bpy.props.FloatProperty(name="Min Thickness", default=0.15, min=0.01, max=0.5, update=update_tree)
     chunkyness: bpy.props.FloatProperty(name="Chunkyness", default=0.5, min=0.1, max=2, update=update_tree)
     surface_noise_planar_2D: bpy.props.FloatVectorProperty(name="Surface Planar Noise Scale", default=(2, 2), min=0.01, max=5, size=2, update=update_tree)
     surface_noise_vertical_2D: bpy.props.FloatVectorProperty(name="Surface Vertical Noise Scale", default=(0.05, 0.05), min=0.01, max=5, size=2, update=update_tree)
-    surface_noise_intensity_2D: bpy.props.FloatVectorProperty(name="Surface Noise Intensity", default=(0.2, 0.1), min=0.01, max=5, size=2, update=update_tree)
+    surface_noise_intensity_2D: bpy.props.FloatVectorProperty(name="Surface Noise Intensity", default=(0.1, 0.1), min=0.01, max=5, size=2, update=update_tree)
 
 
 class GROWTREE_OT_create_tree(bpy.types.Operator):
