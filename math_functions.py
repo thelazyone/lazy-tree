@@ -23,7 +23,7 @@ def softplus(x, factor):
 
 def uniform_random_direction():
     theta = random.uniform(0, 2 * math.pi)
-    phi = random.uniform(0, math.pi)
+    phi = math.acos(random.uniform(-1, 1))
     
     x = math.sin(phi) * math.cos(theta)
     y = math.sin(phi) * math.sin(theta)
