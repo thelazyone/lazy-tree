@@ -102,17 +102,19 @@ class GROWTREE_PG_tree_parameters(bpy.types.PropertyGroup):
     surface_noise_intensity_2D: bpy.props.FloatVectorProperty(name="Surface Noise Intensity", default=(0.1, 0.1), min=0.01, max=5, size=2, update=update_tree)
 
 
-# Saving and loading the above configuration:
 class GROWTREE_OT_save_config(bpy.types.Operator):
     bl_idname = "growtree.save_config"
     bl_label = "Save Configuration"
     bl_options = {'REGISTER', 'UNDO'}
     
-    filepath: bpy.props.StringProperty(subtype="FILE_PATH")
+    filepath: bpy.props.StringProperty(subtype="FILE_PATH", default="tree_config.json")
+
+    def property_group_to_dict(self, prop_group):
+        return {k: v for k, v in vars(prop_group).items() if k[0] != '_'}
 
     def execute(self, context):
         tree_parameters = context.scene.tree_parameters
-        config = {attr: getattr(tree_parameters, attr) for attr in dir(tree_parameters) if not attr.startswith("__") and not callable(getattr(tree_parameters, attr))}
+        config = self.property_group_to_dict(tree_parameters)
         with open(self.filepath, 'w') as outfile:
             json.dump(config, outfile)
         return {'FINISHED'}
@@ -127,7 +129,7 @@ class GROWTREE_OT_load_config(bpy.types.Operator):
     bl_label = "Load Configuration"
     bl_options = {'REGISTER', 'UNDO'}
     
-    filepath: bpy.props.StringProperty(subtype="FILE_PATH")
+    filepath: bpy.props.StringProperty(subtype="FILE_PATH", default="tree_config.json")
 
     def execute(self, context):
         tree_parameters = context.scene.tree_parameters
@@ -141,7 +143,7 @@ class GROWTREE_OT_load_config(bpy.types.Operator):
     def invoke(self, context, event):
         context.window_manager.fileselect_add(self)
         return {'RUNNING_MODAL'}
-
+    
 
 class GROWTREE_OT_create_tree(bpy.types.Operator):
     bl_idname = "growtree.create_tree"
