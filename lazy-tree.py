@@ -12,6 +12,7 @@ bl_info = {
 
 import sys
 import os
+import json
 import bpy
 import bmesh
 from bpy.props import IntProperty, FloatProperty, FloatVectorProperty
@@ -99,6 +100,47 @@ class GROWTREE_PG_tree_parameters(bpy.types.PropertyGroup):
     surface_noise_planar_2D: bpy.props.FloatVectorProperty(name="Surface Planar Noise Scale", default=(2, 2), min=0.01, max=5, size=2, update=update_tree)
     surface_noise_vertical_2D: bpy.props.FloatVectorProperty(name="Surface Vertical Noise Scale", default=(0.05, 0.05), min=0.01, max=5, size=2, update=update_tree)
     surface_noise_intensity_2D: bpy.props.FloatVectorProperty(name="Surface Noise Intensity", default=(0.1, 0.1), min=0.01, max=5, size=2, update=update_tree)
+
+
+# Saving and loading the above configuration:
+class GROWTREE_OT_save_config(bpy.types.Operator):
+    bl_idname = "growtree.save_config"
+    bl_label = "Save Configuration"
+    bl_options = {'REGISTER', 'UNDO'}
+    
+    filepath: bpy.props.StringProperty(subtype="FILE_PATH")
+
+    def execute(self, context):
+        tree_parameters = context.scene.tree_parameters
+        config = {attr: getattr(tree_parameters, attr) for attr in dir(tree_parameters) if not attr.startswith("__") and not callable(getattr(tree_parameters, attr))}
+        with open(self.filepath, 'w') as outfile:
+            json.dump(config, outfile)
+        return {'FINISHED'}
+    
+    def invoke(self, context, event):
+        context.window_manager.fileselect_add(self)
+        return {'RUNNING_MODAL'}
+
+
+class GROWTREE_OT_load_config(bpy.types.Operator):
+    bl_idname = "growtree.load_config"
+    bl_label = "Load Configuration"
+    bl_options = {'REGISTER', 'UNDO'}
+    
+    filepath: bpy.props.StringProperty(subtype="FILE_PATH")
+
+    def execute(self, context):
+        tree_parameters = context.scene.tree_parameters
+        with open(self.filepath, 'r') as infile:
+            config = json.load(infile)
+        for attr, value in config.items():
+            if hasattr(tree_parameters, attr):
+                setattr(tree_parameters, attr, value)
+        return {'FINISHED'}
+    
+    def invoke(self, context, event):
+        context.window_manager.fileselect_add(self)
+        return {'RUNNING_MODAL'}
 
 
 class GROWTREE_OT_create_tree(bpy.types.Operator):
@@ -272,6 +314,10 @@ class GROWTREE_PT_create_tree_panel(bpy.types.Panel):
 
         layout.operator(GROWTREE_OT_create_tree.bl_idname)
 
+        # Adding the saving and loading options.
+        layout.operator(GROWTREE_OT_save_config.bl_idname)
+        layout.operator(GROWTREE_OT_load_config.bl_idname)
+
 
 def menu_func(self, context):
     self.layout.operator(GROWTREE_OT_create_tree.bl_idname)
@@ -279,6 +325,8 @@ def menu_func(self, context):
 # Register / Unregister boilerplate
 def register():
     bpy.utils.register_class(GROWTREE_PG_tree_parameters)
+    bpy.utils.register_class(GROWTREE_OT_save_config)
+    bpy.utils.register_class(GROWTREE_OT_load_config)
     bpy.utils.register_class(GROWTREE_OT_create_tree)
     bpy.utils.register_class(GROWTREE_PT_create_tree_panel)
     bpy.types.Scene.tree_parameters = bpy.props.PointerProperty(type=GROWTREE_PG_tree_parameters)
@@ -286,6 +334,8 @@ def register():
 
 def unregister():
     bpy.utils.unregister_class(GROWTREE_PG_tree_parameters)
+    bpy.utils.unregister_class(GROWTREE_OT_save_config)
+    bpy.utils.unregister_class(GROWTREE_OT_load_config)
     bpy.utils.unregister_class(GROWTREE_OT_create_tree)
     bpy.utils.unregister_class(GROWTREE_PT_create_tree_panel)
     del bpy.types.Scene.tree_parameters
