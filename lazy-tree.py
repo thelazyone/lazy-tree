@@ -15,6 +15,7 @@ import os
 import json
 import bpy
 import bmesh
+import idprop.types
 from bpy.props import IntProperty, FloatProperty, FloatVectorProperty
 
 # for split logic.
@@ -52,12 +53,14 @@ from tree_mesh_functions import create_section_mesh
 
 
 def update_tree(self, context):
-    bpy.ops.growtree.create_tree()
+    if context.scene.tree_parameters.auto_update:
+        bpy.ops.growtree.create_tree()
 
 
 class GROWTREE_PG_tree_parameters(bpy.types.PropertyGroup):
 
     # General Properties
+    auto_update: bpy.props.BoolProperty(name="Auto Update", default=True)
     seed: bpy.props.IntProperty(name="Seed", default=0, update=update_tree)
     iterations: bpy.props.IntProperty(name="Iterations", default=256, min=0, max=1024, update=update_tree)
     radius: bpy.props.FloatProperty(name="Trunk Base Radius", default=0.5, min=0.1, max=10, update=update_tree)
@@ -110,14 +113,25 @@ class GROWTREE_OT_save_config(bpy.types.Operator):
     filepath: bpy.props.StringProperty(subtype="FILE_PATH", default="tree_config.json")
 
     def property_group_to_dict(self, prop_group):
-        return {k: v for k, v in vars(prop_group).items() if k[0] != '_'}
-
+        result = {}
+        for k in prop_group.keys():
+            val = prop_group[k]
+            if isinstance(val, (list, tuple)):
+                result[k] = list(val)
+            elif isinstance(val, idprop.types.IDPropertyArray):
+                result[k] = val.to_list()
+            else:
+                result[k] = val
+            print(f"Processing property {k} with value {result[k]}")
+        return result  
+    
     def execute(self, context):
         tree_parameters = context.scene.tree_parameters
         config = self.property_group_to_dict(tree_parameters)
         with open(self.filepath, 'w') as outfile:
             json.dump(config, outfile)
         return {'FINISHED'}
+
     
     def invoke(self, context, event):
         context.window_manager.fileselect_add(self)
@@ -130,14 +144,21 @@ class GROWTREE_OT_load_config(bpy.types.Operator):
     bl_options = {'REGISTER', 'UNDO'}
     
     filepath: bpy.props.StringProperty(subtype="FILE_PATH", default="tree_config.json")
-
+    
     def execute(self, context):
         tree_parameters = context.scene.tree_parameters
+        tree_parameters.auto_update = False
         with open(self.filepath, 'r') as infile:
             config = json.load(infile)
         for attr, value in config.items():
             if hasattr(tree_parameters, attr):
-                setattr(tree_parameters, attr, value)
+                # Check if the value in the file is a list and the property is an IDPropertyArray
+                if isinstance(value, list) and isinstance(getattr(tree_parameters, attr), idprop.types.IDPropertyArray):
+                    getattr(tree_parameters, attr).from_list(value)
+                else:
+                    setattr(tree_parameters, attr, value)
+        tree_parameters.auto_update = True
+        update_tree(self, context)
         return {'FINISHED'}
     
     def invoke(self, context, event):
@@ -279,7 +300,7 @@ class GROWTREE_PT_create_tree_panel(bpy.types.Panel):
 
         box = layout.box()
         box.label(text="General Properties")
-        props = ["seed", "iterations", "radius", "trunk_branches_division_2D"]
+        props = ["auto_update", "seed", "iterations", "radius", "trunk_branches_division_2D"]
         for prop_name in props:
             self.draw_prop(box, tree_parameters, prop_name)
 
