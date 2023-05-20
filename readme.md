@@ -26,8 +26,8 @@ You *will* likely be overwhelmed by the amount of parameters, which yet need to 
 Future versions of the script should implement several more features:
 * Add general presets
 * Group parameters in different sections each with a preset
-* Allow to save and load the options.
 * Implement a pruning logic, that adds a chance for thin branches to break over time depending on the weight on them and the number of iterations (If a branch is broken, the child branches won't be displayed)
+* Implement a light searching logic. Without having to create specific leaves, it's reasonable to calculate a value of ambient occlusion for each branch and possibly a direction of maximum light to grow towards. If the parameter regulating that is set to maximum you'll end up with a more even distribution of branches. Also it should prevent branches touching or intersecting each other too much.
 
 
 # Licensing
