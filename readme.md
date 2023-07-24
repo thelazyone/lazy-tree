@@ -24,6 +24,8 @@ You *will* likely be overwhelmed by the amount of parameters, which yet need to 
 
 # TO-DOs
 Future versions of the script should implement several more features:
+* Roots are not enough to justify the widening of the bottom of the trunk. 
+* Cropping the roots under the 0 axis should be done automatically, with special care to the potentially oerlapping vertices that this generates.
 * Add general presets
 * Group parameters in different sections each with a preset
 * Implement a pruning logic, that adds a chance for thin branches to break over time depending on the weight on them and the number of iterations (If a branch is broken, the child branches won't be displayed)
